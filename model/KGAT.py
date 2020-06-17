@@ -43,6 +43,7 @@ class Aggregator(nn.Module):
         # Get different results when using `dgl.function.sum`, and the randomness is due to `atomicAdd`
         # Use `dgl.function.sum` when training model to speed up
         # Use custom function to ensure deterministic behavior when predicting
+        # g.update_all(lambda edges: {'side' : edges.src['node'] * edges.data['att']}, lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
         if mode == 'predict':
             g.update_all(dgl.function.u_mul_e('node', 'att', 'side'), lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
         else:

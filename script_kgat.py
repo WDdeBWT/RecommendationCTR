@@ -155,7 +155,10 @@ def train(args):
                 cf_batch_neg_item = cf_batch_neg_item.to(device)
             cf_batch_loss = model('calc_cf_loss', train_graph, cf_batch_user, cf_batch_pos_item, cf_batch_neg_item)
 
+            print('cf_batch_loss.backward() start')
+            time_start = time()
             cf_batch_loss.backward()
+            print('cf_batch_loss.backward time:' + str(time() - time_start))
             optimizer.step()
             optimizer.zero_grad()
             cf_total_loss += cf_batch_loss.item()

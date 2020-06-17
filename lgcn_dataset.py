@@ -17,7 +17,6 @@ class DataOnlyCF(torch.utils.data.Dataset):
         self.sample_mode_train = True
 
     def _load_cf_data(self, file_path):
-        print('--- _load_cf_data')
         cases_user = []
         cases_item = []
         user_dict = dict()
@@ -41,7 +40,6 @@ class DataOnlyCF(torch.utils.data.Dataset):
         return [cases_user, cases_item], user_dict
 
     def _statistic_cf(self):
-        print('--- _statistic_cf')
         n_users = max(max(self.train_data[0]), max(self.test_data[0])) + 1
         n_items = max(max(self.train_data[1]), max(self.test_data[1])) + 1
         n_train = len(self.train_data[0])
@@ -49,7 +47,6 @@ class DataOnlyCF(torch.utils.data.Dataset):
         return n_users, n_items, n_train, n_test
 
     def _build_interaction_graph(self):
-        print('--- _build_interaction_graph')
         n_nodes = self.n_users + self.n_items
         g = dgl.DGLGraph()
         g.add_nodes(n_nodes)
@@ -58,13 +55,13 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.add_edges(self.train_data[1] + self.n_users, self.train_data[0])
         g.readonly()
         g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
+        g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().to(torch.float).unsqueeze(-1))
         return g
 
     def __len__(self):
         return len(self.train_user_list)
 
     def __getitem__(self, index):
-        # print('--- __getitem__')
         # Problem: not traversal, but sample
         user_id = self.train_user_list[index]
         pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]

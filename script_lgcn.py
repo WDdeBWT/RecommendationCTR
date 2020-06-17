@@ -17,19 +17,18 @@ def train(model, data_loader, optimizer, G, log_interval=10):
     total_loss = 0
     # for i, (user_ids, pos_ids, neg_ids) in enumerate(tqdm.tqdm(data_loader, smoothing=0, mininterval=1.0)):
     for i, (user_ids, pos_ids, neg_ids) in enumerate(data_loader):
-        print('train: ' + str(i))
         loss = model.bpr_loss(user_ids, pos_ids, neg_ids, G)
-        print('loss', i, loss)
+        print(f'train loss {i + 1}/{len(data_loader)}: {loss}')
         model.zero_grad()
         time_start = time.time()
         loss.backward()
         print('loss.backward time:' + str(time.time() - time_start))
         optimizer.step()
         total_loss += loss.item()
-        if (i + 1) % log_interval == 0:
-            print('    - loss:', total_loss / log_interval)
-            total_loss = 0
-        print('train: ' + str(i) + 'finish')
+        # if (i + 1) % log_interval == 0:
+        #     print('    - loss:', total_loss / log_interval)
+        #     total_loss = 0
+        # print('train: ' + str(i) + 'finish')
 
 if __name__ == "__main__":
     data = DataOnlyCF('data/amazon-book/train.txt', 'data/amazon-book/test.txt')

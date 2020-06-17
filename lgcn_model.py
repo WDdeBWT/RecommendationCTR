@@ -13,9 +13,6 @@ class Aggregator(nn.Module):
         # try to use a static func instead of a object
         g = g.local_var()
         g.ndata['node'] = entity_embed
-        g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().to(torch.float).unsqueeze(-1))
-        print(g.ndata['sqrt_degree'].require_grad)
-        exit()
 
         g.update_all(lambda edges: {'side': edges.src['node'] * edges.src['sqrt_degree']},
                      lambda nodes: {'N_h': nodes.data['sqrt_degree'] * torch.sum(nodes.mailbox['side'], 1)})
@@ -56,7 +53,6 @@ class LightGCN(nn.Module):
         return propagated_embed
 
     def bpr_loss(self, users, pos, neg, g):
-        print('----- bpr_loss')
         users_emb_ego = self.embedding_user_item(users.long())
         pos_emb_ego   = self.embedding_user_item(pos.long() + self.n_users)
         neg_emb_ego   = self.embedding_user_item(neg.long() + self.n_users)

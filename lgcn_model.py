@@ -18,10 +18,18 @@ class Aggregator(nn.Module):
                      lambda nodes: {'N_h': nodes.data['sqrt_degree'] * torch.sum(nodes.mailbox['side'], 1)})
         return g.ndata['N_h']
 
+    def forward(self, g, entity_embed):
+        # try to use a static func instead of a object
+        g = g.local_var()
+        g.ndata['node'] = entity_embed * g.ndata['sqrt_degree']
+        g.update_all(dgl.function.copy_src(src='node', out='side'), dgl.function.sum(msg='side', out='N_h'))
+        g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['sqrt_degree']
+        return g.ndata['N_h']
+
 
 class LightGCN(nn.Module):
 
-    def __init__(self, n_users, n_items, embed_dim=64, n_layers=3, lam=0.001):
+    def __init__(self, n_users, n_items, G, embed_dim=64, n_layers=3, lam=0.001):
         super(LightGCN, self).__init__()
 
         self.n_users = n_users
@@ -29,6 +37,8 @@ class LightGCN(nn.Module):
         self.embed_dim = embed_dim
         self.n_layers = n_layers
         self.lam = lam
+        self.G = G
+        self.f = nn.Sigmoid()
 
         self.embedding_user_item = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
         nn.init.xavier_uniform_(self.embedding_user_item.weight)
@@ -37,8 +47,8 @@ class LightGCN(nn.Module):
         for k in range(self.n_layers):
             self.aggregator_layers.append(Aggregator())
 
-    def _propagate_embedding(self, g):
-        g = g.local_var()
+    def _propagate_embedding(self):
+        g = self.G.local_var()
         ego_embed = self.embedding_user_item(g.ndata['id'])
         all_embed = [ego_embed]
 
@@ -52,12 +62,12 @@ class LightGCN(nn.Module):
         propagated_embed = torch.mean(all_embed, dim=-1) # (n_users + n_entities, embed_dim)
         return propagated_embed
 
-    def bpr_loss(self, users, pos, neg, g):
+    def bpr_loss(self, users, pos, neg):
         users_emb_ego = self.embedding_user_item(users.long())
         pos_emb_ego   = self.embedding_user_item(pos.long() + self.n_users)
         neg_emb_ego   = self.embedding_user_item(neg.long() + self.n_users)
 
-        propagated_embed = self._propagate_embedding(g)
+        propagated_embed = self._propagate_embedding()
         users_emb = propagated_embed[users.long()]
         pos_emb   = propagated_embed[pos.long() + self.n_users]
         neg_emb   = propagated_embed[neg.long() + self.n_users]
@@ -69,3 +79,13 @@ class LightGCN(nn.Module):
                     pos_emb_ego.norm(2).pow(2) +
                     neg_emb_ego.norm(2).pow(2)) / float(len(users))
         return loss + self.lam * reg_loss
+
+    def get_users_ratings(self, users):
+        propagated_embed = self._propagate_embedding()
+        users_emb = propagated_embed[users.long()]
+        items_emb = propagated_embed[self.n_users:]
+        ratings = self.f(torch.matmul(users_emb, items_emb.t()))
+        return ratings # shape: (test_batch_size, n_items)
+
+if __name__ == "__main__":
+    pass

@@ -5,6 +5,31 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 
+class TestDatasetOnlyCF(torch.utils.data.Dataset):
+
+    def __init__(self, train_user_dict, test_user_dict, test_user_list, n_items):
+        self.train_user_dict = train_user_dict
+        self.test_user_dict = test_user_dict
+        self.test_user_list = test_user_list
+        self.n_items = n_items
+
+    def __len__(self):
+        return len(self.test_user_list)
+
+    def __getitem__(self, index):
+        # Problem: not traversal, but sample
+        user_id = self.test_user_list[index]
+        pos_id = self.test_user_dict[user_id][np.random.randint(0, len(self.test_user_dict[user_id]))]
+        while True:
+            neg_id = np.random.randint(0, self.n_items)
+            if neg_id in self.train_user_dict[user_id]:
+                continue
+            elif neg_id in self.test_user_dict[user_id]:
+                continue
+            else:
+                break
+        return user_id, pos_id, neg_id
+
 class DataOnlyCF(torch.utils.data.Dataset):
 
     def __init__(self, train_data_path, test_data_path):
@@ -14,7 +39,6 @@ class DataOnlyCF(torch.utils.data.Dataset):
         self.test_user_list = list(self.test_user_dict.keys())
         self.n_users, self.n_items, self.n_train, self.n_test = self._statistic_cf()
         self.G = self._build_interaction_graph()
-        self.sample_mode_train = True
 
     def _load_cf_data(self, file_path):
         cases_user = []
@@ -55,7 +79,7 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.add_edges(self.train_data[1] + self.n_users, self.train_data[0])
         g.readonly()
         g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-        g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().to(torch.float).unsqueeze(-1))
+        g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
         return g
 
     def __len__(self):
@@ -81,6 +105,9 @@ class DataOnlyCF(torch.utils.data.Dataset):
 
     def get_item_num(self):
         return self.n_items
+        
+    def get_test_dataset(self):
+        return TestDatasetOnlyCF(self.train_user_dict, self.test_user_dict, self.test_user_list, self.n_items)
 
 
 if __name__ == "__main__":

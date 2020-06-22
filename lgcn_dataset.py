@@ -82,12 +82,26 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
         return g
 
+    # def __len__(self):
+    #     return len(self.train_user_list)
+
+    # def __getitem__(self, index):
+    #     # Problem: not traversal, but sample
+    #     user_id = self.train_user_list[index]
+    #     pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
+    #     while True:
+    #         neg_id = np.random.randint(0, self.n_items)
+    #         if neg_id in self.train_user_dict[user_id]:
+    #             continue
+    #         else:
+    #             break
+    #     return user_id, pos_id, neg_id
+
     def __len__(self):
-        return len(self.train_user_list)
+        return self.n_train
 
     def __getitem__(self, index):
-        # Problem: not traversal, but sample
-        user_id = self.train_user_list[index]
+        user_id = np.random.randint(0, self.n_users)
         pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
         while True:
             neg_id = np.random.randint(0, self.n_items)

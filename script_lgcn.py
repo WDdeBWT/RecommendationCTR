@@ -14,7 +14,7 @@ EPOCH = 200
 LR = 0.001
 EDIM = 64
 LAYERS = 3
-LAM = 0.001
+LAM = 1e-4
 TOPK = 20
 
 def train(model, data_loader, optimizer, log_interval=10):
@@ -72,7 +72,7 @@ def test(data_set, model, data_loader):
 
 
 if __name__ == "__main__":
-    data_set = DataOnlyCF('data/amazon-book/train.txt', 'data/amazon-book/test.txt')
+    data_set = DataOnlyCF('data_lgcn/gowalla/train.txt', 'data_lgcn/gowalla/test.txt')
     G = data_set.get_interaction_graph()
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
@@ -88,5 +88,10 @@ if __name__ == "__main__":
     print('==================================================')
     test(data_set, model, test_data_loader)
 
+# run data/amazon
 # train loss 0.11; evaluate loss 0.23
 # precision 0.0084; recall 0.0781
+
+# run data_lgcn/gowalla
+# train loss 0.07; evaluate loss 0.11
+# precision 0.026320556846477126; recall 0.0931933408059992

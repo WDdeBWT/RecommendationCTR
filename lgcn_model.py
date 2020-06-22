@@ -9,14 +9,14 @@ class Aggregator(nn.Module):
     def __init__(self):
         super(Aggregator, self).__init__()
 
-    def forward(self, g, entity_embed):
-        # try to use a static func instead of a object
-        g = g.local_var()
-        g.ndata['node'] = entity_embed
+    # def forward(self, g, entity_embed):
+    #     # try to use a static func instead of a object
+    #     g = g.local_var()
+    #     g.ndata['node'] = entity_embed
 
-        g.update_all(lambda edges: {'side': edges.src['node'] * edges.src['sqrt_degree']},
-                     lambda nodes: {'N_h': nodes.data['sqrt_degree'] * torch.sum(nodes.mailbox['side'], 1)})
-        return g.ndata['N_h']
+    #     g.update_all(lambda edges: {'side': edges.src['node'] * edges.src['sqrt_degree']},
+    #                  lambda nodes: {'N_h': nodes.data['sqrt_degree'] * torch.sum(nodes.mailbox['side'], 1)})
+    #     return g.ndata['N_h']
 
     def forward(self, g, entity_embed):
         # try to use a static func instead of a object
@@ -41,7 +41,7 @@ class LightGCN(nn.Module):
         self.f = nn.Sigmoid()
 
         self.embedding_user_item = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
-        nn.init.xavier_uniform_(self.embedding_user_item.weight)
+        nn.init.xavier_uniform_(self.embedding_user_item.weight, gain=1)
 
         self.aggregator_layers = nn.ModuleList()
         for k in range(self.n_layers):
@@ -55,8 +55,8 @@ class LightGCN(nn.Module):
         for i, layer in enumerate(self.aggregator_layers):
             ego_embed = layer(g, ego_embed)
             # norm_embed = F.normalize(ego_embed, p=2, dim=1)
-            norm_embed = ego_embed.clone()
-            all_embed.append(norm_embed)
+            # norm_embed = ego_embed.clone()
+            all_embed.append(ego_embed)
 
         all_embed = torch.stack(all_embed, dim=-1)
         propagated_embed = torch.mean(all_embed, dim=-1) # (n_users + n_entities, embed_dim)
@@ -75,9 +75,9 @@ class LightGCN(nn.Module):
         pos_scores = torch.sum(users_emb*pos_emb, dim=1)
         neg_scores = torch.sum(users_emb*neg_emb, dim=1)
         loss = torch.mean(nn.functional.softplus(neg_scores - pos_scores))
-        reg_loss = (users_emb_ego.norm(2).pow(2) +
-                    pos_emb_ego.norm(2).pow(2) +
-                    neg_emb_ego.norm(2).pow(2)) / float(len(users))
+        reg_loss = (1/2) * (users_emb_ego.norm(2).pow(2) +
+                            pos_emb_ego.norm(2).pow(2) +
+                            neg_emb_ego.norm(2).pow(2)) / float(len(users))
         return loss + self.lam * reg_loss
 
     def get_users_ratings(self, users):

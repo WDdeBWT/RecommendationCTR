@@ -56,7 +56,7 @@ def evaluate(model, data_loader):
         avg_loss = total_loss / len(data_loader)
         print('evaluate loss:' + str(avg_loss))
 
-def test(data_set, model, data_loader):
+def test(data_set, model, data_loader, show_auc = False):
     with torch.no_grad():
         print('----- start_test -----')
         model.eval()
@@ -80,18 +80,22 @@ def test(data_set, model, data_loader):
             batch_precision, batch_recall = precision_and_recall(batch_predict_items, ground_truths)
             batch_ndcg = ndcg(batch_predict_items, ground_truths)
             # AUC
-            ratings = ratings.cpu().numpy()
-            batch_auc = auc(ratings, data_set.get_item_num(), ground_truths)
+            if show_auc:
+                ratings = ratings.cpu().numpy()
+                batch_auc = auc(ratings, data_set.get_item_num(), ground_truths)
+                auc_score.append(batch_auc)
 
             precision.append(batch_precision)
             recall.append(batch_recall)
             ndcg_score.append(batch_ndcg)
-            auc_score.append(batch_auc)
         precision = np.mean(precision)
         recall = np.mean(recall)
         ndcg_score = np.mean(ndcg_score)
-        auc_score = np.mean(auc_score)
-        print('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score) + '; auc ' + str(auc_score))
+        if show_auc: # Calculate AUC scores spends a long time
+            auc_score = np.mean(auc_score)
+            print('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score) + '; auc ' + str(auc_score))
+        else:
+            print('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score))
 
 
 if __name__ == "__main__":
@@ -105,8 +109,6 @@ if __name__ == "__main__":
     train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=4)
     test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=4)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
-    test(data_set, model, test_data_loader)######
-    exit(0)######
     for epoch_i in range(EPOCH):
         print('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(EPOCH))
         train(model, train_data_loader, optimizer)

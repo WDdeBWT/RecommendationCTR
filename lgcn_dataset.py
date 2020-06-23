@@ -100,20 +100,9 @@ class DataOnlyCF(torch.utils.data.Dataset):
     def __len__(self): # secend/third version
         return self.n_train
 
-    # def __getitem__(self, index): # secend version
-    #     user_id = np.random.randint(0, self.n_users)
-    #     pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
-    #     while True:
-    #         neg_id = np.random.randint(0, self.n_items)
-    #         if neg_id in self.train_user_dict[user_id]:
-    #             continue
-    #         else:
-    #             break
-    #     return user_id, pos_id, neg_id
-
-    def __getitem__(self, index): # third version
-        user_id = self.train_data[0][index]
-        pos_id = self.train_data[1][index]
+    def __getitem__(self, index): # secend version
+        user_id = np.random.randint(0, self.n_users)
+        pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
         while True:
             neg_id = np.random.randint(0, self.n_items)
             if neg_id in self.train_user_dict[user_id]:
@@ -121,6 +110,17 @@ class DataOnlyCF(torch.utils.data.Dataset):
             else:
                 break
         return user_id, pos_id, neg_id
+
+    # def __getitem__(self, index): # third version
+    #     user_id = self.train_data[0][index]
+    #     pos_id = self.train_data[1][index]
+    #     while True:
+    #         neg_id = np.random.randint(0, self.n_items)
+    #         if neg_id in self.train_user_dict[user_id]:
+    #             continue
+    #         else:
+    #             break
+    #     return user_id, pos_id, neg_id
 
     def get_interaction_graph(self):
         return self.G

@@ -119,13 +119,9 @@ if __name__ == "__main__":
     print('==================================================')
     test(data_set, model, test_data_loader)
 
-# run data/amazon
-# train loss 0.11; evaluate loss 0.23
-# precision 0.0084; recall 0.0781
-
-# run data_lgcn/gowalla
-# train loss 0.07; evaluate loss 0.11
-# precision 0.026320556846477126; recall 0.0931933408059992
+# run data_lgcn/gowalla at epoch 300 gowalla
+# train loss 0.015; evaluate loss 0.134
+# test result: precision 0.047575934218717066; recall 0.16351703048292573; ndcg 0.13673274095554458
 
 # Paper code at epoch 50 gowalla
 # {'precision': array([0.04382075]), 'recall': array([0.14503336]), 'ndcg': array([0.12077126]), 'auc': 0.9587075653077938}

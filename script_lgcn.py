@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from cf_dataset import DataOnlyCF
-from lgcn_model import LightGCN
+from light_gcn.lgcn_model import LightGCN
 from metrics import precision_and_recall, ndcg, auc
 
 EPOCH = 200

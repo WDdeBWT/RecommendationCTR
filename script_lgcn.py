@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 
-from lgcn_dataset import DataOnlyCF
+from cf_dataset import DataOnlyCF
 from lgcn_model import LightGCN
 from metrics import precision_and_recall, ndcg, auc
 

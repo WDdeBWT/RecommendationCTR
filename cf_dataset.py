@@ -130,7 +130,10 @@ class DataOnlyCF(torch.utils.data.Dataset):
 
     def get_item_num(self):
         return self.n_items
-        
+
+    def get_train_data(self):
+        return self.train_data
+
     def get_test_dataset(self):
         return TestDatasetOnlyCF(self.train_user_dict, self.test_user_dict, self.test_user_list, self.n_items)
 

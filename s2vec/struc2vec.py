@@ -13,9 +13,9 @@ from gensim.models import Word2Vec
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from .alias import create_alias_table
+# from .alias import create_alias_table
 from .utils import partition_dict, partition_list, preprocess_nxgraph
-from .walker import BiasedWalker
+# from .walker import BiasedWalker
 
 
 class Struc2Vec():
@@ -38,12 +38,12 @@ class Struc2Vec():
             os.mkdir(self.temp_path)
 
         self.create_context_graph(self.opt3_num_layers, workers, verbose)
-        self.prepare_biased_walk()
-        self.walker = BiasedWalker(self.idx2node, self.temp_path)
-        self.sentences = self.walker.simulate_walks(
-            num_walks, walk_length, stay_prob, workers, verbose)
 
-        self._embeddings = {}
+        # self.prepare_biased_walk()
+        # self.walker = BiasedWalker(self.idx2node, self.temp_path)
+        # self.sentences = self.walker.simulate_walks(
+        #     num_walks, walk_length, stay_prob, workers, verbose)
+        # self._embeddings = {}
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
         print(str(time.asctime(time.localtime(time.time()))) + ' create_context_graph')
@@ -53,67 +53,10 @@ class Struc2Vec():
         layers_adj, layers_distances = self._get_layer_rep(pair_distances)
         pd.to_pickle(layers_adj, self.temp_path + 'layers_adj.pkl')
 
-        layers_accept, layers_alias = self._get_transition_probs(
-            layers_adj, layers_distances)
-        pd.to_pickle(layers_alias, self.temp_path + 'layers_alias.pkl')
-        pd.to_pickle(layers_accept, self.temp_path + 'layers_accept.pkl')
-
-    def prepare_biased_walk(self,):
-        print(str(time.asctime(time.localtime(time.time()))) + ' prepare_biased_walk')
-
-        sum_weights = {}
-        sum_edges = {}
-        average_weight = {}
-        gamma = {}
-        layer = 0
-        while (os.path.exists(self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')):
-            probs = pd.read_pickle(
-                self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')
-            for v, list_weights in probs.items():
-                sum_weights.setdefault(layer, 0)
-                sum_edges.setdefault(layer, 0)
-                sum_weights[layer] += sum(list_weights)
-                sum_edges[layer] += len(list_weights)
-
-            average_weight[layer] = sum_weights[layer] / sum_edges[layer]
-
-            gamma.setdefault(layer, {})
-
-            for v, list_weights in probs.items():
-                num_neighbours = 0
-                for w in list_weights:
-                    if (w > average_weight[layer]):
-                        num_neighbours += 1
-                gamma[layer][v] = num_neighbours
-
-            layer += 1
-
-        pd.to_pickle(average_weight, self.temp_path + 'average_weight')
-        pd.to_pickle(gamma, self.temp_path + 'gamma.pkl')
-
-    def train(self, embed_size=128, window_size=5, workers=4, iter=5):
-
-        # pd.read_pickle(self.temp_path+'walks.pkl')
-        sentences = self.sentences
-
-        print("Learning representation...")
-        model = Word2Vec(sentences, size=embed_size, window=window_size, min_count=0, hs=1, sg=1, workers=workers,
-                         iter=iter)
-        print("Learning representation done!")
-        self.w2v_model = model
-
-        return model
-
-    def get_embeddings(self,):
-        if self.w2v_model is None:
-            print("model not train")
-            return {}
-
-        self._embeddings = {}
-        for word in self.graph.nodes():
-            self._embeddings[word] = self.w2v_model.wv[word]
-
-        return self._embeddings
+        # layers_accept, layers_alias = self._get_transition_probs(
+        #     layers_adj, layers_distances)
+        # pd.to_pickle(layers_alias, self.temp_path + 'layers_alias.pkl')
+        # pd.to_pickle(layers_accept, self.temp_path + 'layers_accept.pkl')
 
     def _compute_ordered_degreelist(self, max_num_layers, workers=1, verbose=0):
         print(str(time.asctime(time.localtime(time.time()))) + ' _compute_ordered_degreelist')
@@ -197,8 +140,10 @@ class Struc2Vec():
                 dist_func = cost
 
             if os.path.exists(self.temp_path + 'degreelist.pkl'):
+                print('----- read degreelist')
                 degreeList = pd.read_pickle(self.temp_path + 'degreelist.pkl')
             else:
+                print('----- train degreelist')
                 degreeList = self._compute_ordered_degreelist(max_num_layers, workers, verbose)
                 pd.to_pickle(degreeList, self.temp_path + 'degreelist.pkl')
 
@@ -274,45 +219,102 @@ class Struc2Vec():
 
         return layers_adj, layers_distances
 
-    def _get_transition_probs(self, layers_adj, layers_distances):
-        print(str(time.asctime(time.localtime(time.time()))) + ' _get_transition_probs')
-        layers_alias = {}
-        layers_accept = {}
+    # def _get_transition_probs(self, layers_adj, layers_distances):
+    #     print(str(time.asctime(time.localtime(time.time()))) + ' _get_transition_probs')
+    #     layers_alias = {}
+    #     layers_accept = {}
 
-        for layer in layers_adj:
+    #     for layer in layers_adj:
 
-            neighbors_dict = layers_adj[layer]
-            layer_distances = layers_distances[layer]
-            node_alias_dict = {}
-            node_accept_dict = {}
-            norm_weights = {}
+    #         neighbors_dict = layers_adj[layer]
+    #         layer_distances = layers_distances[layer]
+    #         node_alias_dict = {}
+    #         node_accept_dict = {}
+    #         norm_weights = {}
 
-            for v, neighbors in neighbors_dict.items():
-                e_list = []
-                sum_w = 0.0
+    #         for v, neighbors in neighbors_dict.items():
+    #             e_list = []
+    #             sum_w = 0.0
 
-                for n in neighbors:
-                    if (v, n) in layer_distances:
-                        wd = layer_distances[v, n]
-                    else:
-                        wd = layer_distances[n, v]
-                    w = np.exp(-float(wd))
-                    e_list.append(w)
-                    sum_w += w
+    #             for n in neighbors:
+    #                 if (v, n) in layer_distances:
+    #                     wd = layer_distances[v, n]
+    #                 else:
+    #                     wd = layer_distances[n, v]
+    #                 w = np.exp(-float(wd))
+    #                 e_list.append(w)
+    #                 sum_w += w
 
-                e_list = [x / sum_w for x in e_list]
-                norm_weights[v] = e_list
-                accept, alias = create_alias_table(e_list)
-                node_alias_dict[v] = alias
-                node_accept_dict[v] = accept
+    #             e_list = [x / sum_w for x in e_list]
+    #             norm_weights[v] = e_list
+                # accept, alias = create_alias_table(e_list)
+    #             node_alias_dict[v] = alias
+    #             node_accept_dict[v] = accept
 
-            pd.to_pickle(
-                norm_weights, self.temp_path + 'norm_weights_distance-layer-' + str(layer)+'.pkl')
+    #         pd.to_pickle(
+    #             norm_weights, self.temp_path + 'norm_weights_distance-layer-' + str(layer)+'.pkl')
 
-            layers_alias[layer] = node_alias_dict
-            layers_accept[layer] = node_accept_dict
+    #         layers_alias[layer] = node_alias_dict
+    #         layers_accept[layer] = node_accept_dict
 
-        return layers_accept, layers_alias
+    #     return layers_accept, layers_alias
+
+    # def prepare_biased_walk(self,):
+    #     print(str(time.asctime(time.localtime(time.time()))) + ' prepare_biased_walk')
+
+    #     sum_weights = {}
+    #     sum_edges = {}
+    #     average_weight = {}
+    #     gamma = {}
+    #     layer = 0
+    #     while (os.path.exists(self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')):
+    #         probs = pd.read_pickle(
+    #             self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')
+    #         for v, list_weights in probs.items():
+    #             sum_weights.setdefault(layer, 0)
+    #             sum_edges.setdefault(layer, 0)
+    #             sum_weights[layer] += sum(list_weights)
+    #             sum_edges[layer] += len(list_weights)
+
+    #         average_weight[layer] = sum_weights[layer] / sum_edges[layer]
+
+    #         gamma.setdefault(layer, {})
+
+    #         for v, list_weights in probs.items():
+    #             num_neighbours = 0
+    #             for w in list_weights:
+    #                 if (w > average_weight[layer]):
+    #                     num_neighbours += 1
+    #             gamma[layer][v] = num_neighbours
+
+    #         layer += 1
+
+    #     pd.to_pickle(average_weight, self.temp_path + 'average_weight')
+    #     pd.to_pickle(gamma, self.temp_path + 'gamma.pkl')
+
+    # def train(self, embed_size=128, window_size=5, workers=4, iter=5):
+
+    #     # pd.read_pickle(self.temp_path+'walks.pkl')
+    #     sentences = self.sentences
+
+    #     print("Learning representation...")
+    #     model = Word2Vec(sentences, size=embed_size, window=window_size, min_count=0, hs=1, sg=1, workers=workers,
+    #                      iter=iter)
+    #     print("Learning representation done!")
+    #     self.w2v_model = model
+
+    #     return model
+
+    # def get_embeddings(self,):
+    #     if self.w2v_model is None:
+    #         print("model not train")
+    #         return {}
+
+    #     self._embeddings = {}
+    #     for word in self.graph.nodes():
+    #         self._embeddings[word] = self.w2v_model.wv[word]
+
+    #     return self._embeddings
 
 
 def cost(a, b):

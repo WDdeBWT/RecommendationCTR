@@ -22,10 +22,10 @@ def get_rec_graph(train_path, test_path):
 if __name__ == "__main__":
     # G = nx.read_edgelist('data/flight/usa-airports.edgelist', create_using=nx.DiGraph(), nodetype=None,
     #                      data=[('weight', int)])
-    G = get_rec_graph('data_lgcn/gowalla/train.txt', 'data_lgcn/gowalla/test.txt')
+    rec_graph = get_rec_graph('data_lgcn/gowalla/train.txt', 'data_lgcn/gowalla/test.txt')
 
-    model = Struc2Vec(G, 10, 80, workers=4, verbose=40, opt3_num_layers=3)
-    model.train()
-    embeddings = model.get_embeddings()
-    import pickle
-    pickle.dump(embeddings, 'trained_embeddings.pkl')
+    model = Struc2Vec(rec_graph, 10, 80, workers=4, verbose=40, opt3_num_layers=3)
+    # model.train()
+    # embeddings = model.get_embeddings()
+    # import pickle
+    # pickle.dump(embeddings, 'trained_embeddings.pkl')

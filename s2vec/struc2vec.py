@@ -4,8 +4,10 @@ import os
 import time
 import math
 import shutil
+import dgl
 from collections import ChainMap, deque
 
+import torch
 import numpy as np
 import pandas as pd
 from fastdtw import fastdtw
@@ -13,13 +15,11 @@ from gensim.models import Word2Vec
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-# from .alias import create_alias_table
 from .utils import partition_dict, partition_list, preprocess_nxgraph
-# from .walker import BiasedWalker
 
 
 class Struc2Vec():
-    def __init__(self, graph, walk_length=10, num_walks=100, workers=1, verbose=0, stay_prob=0.3, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec/', reuse=False):
+    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec/', reuse=False):
         self.graph = graph
         self.idx2node, self.node2idx = preprocess_nxgraph(graph)
         self.idx = list(range(len(self.idx2node)))
@@ -37,95 +37,49 @@ class Struc2Vec():
             shutil.rmtree(self.temp_path)
             os.mkdir(self.temp_path)
 
-        self.create_context_graph(self.opt3_num_layers, workers, verbose)
+        if os.path.exists(self.temp_path + 'layers_adj.pkl') and os.path.exists(self.temp_path + 'layers_sim_scores.pkl'):
+            print('----- reuse exist layers_adj and layers_sim_scores')
+            self.layers_adj = pd.read_pickle(self.temp_path + 'layers_adj.pkl')
+            self.layers_sim_scores = pd.read_pickle(self.temp_path + 'layers_sim_scores.pkl')
+        else:
+            self.layers_adj, self.layers_sim_scores = self.create_context_graph(self.opt3_num_layers, workers, verbose)
+            pd.to_pickle(self.layers_adj, self.temp_path + 'layers_adj.pkl')
+            pd.to_pickle(self.layers_sim_scores, self.temp_path + 'layers_sim_scores.pkl')
 
-        # self.prepare_biased_walk()
-        # self.walker = BiasedWalker(self.idx2node, self.temp_path)
-        # self.sentences = self.walker.simulate_walks(
-        #     num_walks, walk_length, stay_prob, workers, verbose)
-        # self._embeddings = {}
+    def get_struc_graphs(self):
+        # build dgl graph of each layer
+        n_nodes = len(self.idx)
+        struc_graphs = []
+        for layer in self.layers_adj:
+            g = dgl.DGLGraph()
+            g.add_nodes(n_nodes)
+            edge_list = []
+            edge_weight_list = []
+            neighbors_dict = self.layers_adj[layer]
+            layer_sim_scores = self.layers_sim_scores[layer]
+            for v, neighbors in neighbors_dict.items():
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        sim_score = layer_sim_scores[v, n]
+                    else:
+                        sim_score = layer_sim_scores[n, v]
+                    edge_list.append((v, n))
+                    edge_weight_list.append(sim_score)
+                    edge_list.append((n, v))
+                    edge_weight_list.append(sim_score)
+            edge_list = np.array(edge_list, dtype=int)
+            g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
+            g.add_edges(edge_list[:, 1:].squeeze(), edge_list[:, :1].squeeze())
+            g.readonly()
+            g.edata['weight'] = torch.tensor(edge_weight_list)
+            struc_graphs.append(g)
+        return struc_graphs
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
         print(str(time.asctime(time.localtime(time.time()))) + ' create_context_graph')
-
-        pair_distances = self._compute_structural_distance(
-            max_num_layers, workers, verbose,)
-        layers_adj, layers_distances = self._get_layer_rep(pair_distances)
-        pd.to_pickle(layers_adj, self.temp_path + 'layers_adj.pkl')
-
-        # layers_accept, layers_alias = self._get_transition_probs(
-        #     layers_adj, layers_distances)
-        # pd.to_pickle(layers_alias, self.temp_path + 'layers_alias.pkl')
-        # pd.to_pickle(layers_accept, self.temp_path + 'layers_accept.pkl')
-
-    def _compute_ordered_degreelist(self, max_num_layers, workers=1, verbose=0):
-        print(str(time.asctime(time.localtime(time.time()))) + ' _compute_ordered_degreelist')
-
-        degreeList = {}
-        vertices = self.idx  # self.g.nodes()
-        # for v in vertices:
-        #     degreeList[v] = self._get_order_degreelist_node(v, max_num_layers)
-        results = Parallel(n_jobs=workers, verbose=verbose,)(
-            delayed(self._get_order_degreelist_node_parallel)(
-                part_list, job_id + 1, max_num_layers) for job_id, part_list in enumerate(
-                    partition_list(vertices, workers, shuffle=True)))
-        degreeList = dict(ChainMap(*results))
-        return degreeList
-
-    def _get_order_degreelist_node_parallel(self, part_list, job_id, max_num_layers=None):
-        part_degreeList = {}
-        time_start = time.time()
-        for i, (_, v) in enumerate(part_list):
-            part_degreeList[v] = self._get_order_degreelist_node(v, max_num_layers)
-            if (i+1) % 100 == 0:
-                print('GODNP job_id: ' + str(job_id) + '; finish: ' + str(i+1) + '/' + str(len(part_list)) + '; time spend: ' + str(time.time() - time_start))
-                time_start = time.time()
-
-    def _get_order_degreelist_node(self, root, max_num_layers=None):
-        if max_num_layers is None:
-            max_num_layers = float('inf') # max number in python
-
-        ordered_degree_sequence_dict = {}
-        visited = [False] * len(self.graph.nodes())
-        queue = deque()
-        level = 0
-        queue.append(root)
-        visited[root] = True
-
-        while (len(queue) > 0 and level <= max_num_layers):
-
-            count = len(queue)
-            if self.opt1_reduce_len:
-                degree_list = {}
-            else:
-                degree_list = []
-            while (count > 0):
-
-                top = queue.popleft()
-                node = self.idx2node[top]
-                degree = len(self.graph[node])
-
-                if self.opt1_reduce_len:
-                    degree_list[degree] = degree_list.get(degree, 0) + 1
-                else:
-                    degree_list.append(degree)
-
-                for nei in self.graph[node]:
-                    nei_idx = self.node2idx[nei]
-                    if not visited[nei_idx]:
-                        visited[nei_idx] = True
-                        queue.append(nei_idx)
-                count -= 1
-            if self.opt1_reduce_len:
-                orderd_degree_list = [(degree, freq)
-                                      for degree, freq in degree_list.items()]
-                orderd_degree_list.sort(key=lambda x: x[0])
-            else:
-                orderd_degree_list = sorted(degree_list)
-            ordered_degree_sequence_dict[level] = orderd_degree_list
-            level += 1
-
-        return ordered_degree_sequence_dict
+        pair_distances = self._compute_structural_distance(max_num_layers, workers, verbose)
+        layers_adj, layers_sim_scores = self._get_layer_rep(pair_distances)
+        return layers_adj, layers_sim_scores
 
     def _compute_structural_distance(self, max_num_layers, workers=1, verbose=0,):
         print(str(time.asctime(time.localtime(time.time()))) + ' _compute_structural_distance')
@@ -175,6 +129,76 @@ class Struc2Vec():
 
         return structural_dist
 
+    def _compute_ordered_degreelist(self, max_num_layers, workers=1, verbose=0):
+        print(str(time.asctime(time.localtime(time.time()))) + ' _compute_ordered_degreelist')
+
+        degreeList = {}
+        vertices = self.idx  # self.g.nodes()
+        # for v in vertices:
+        #     degreeList[v] = self._get_order_degreelist_node(v, max_num_layers)
+        results = Parallel(n_jobs=workers, verbose=verbose,)(
+            delayed(self._get_order_degreelist_node_parallel)(
+                part_list, job_id + 1, max_num_layers) for job_id, part_list in enumerate(
+                    partition_list(vertices, workers, shuffle=True)))
+        degreeList = dict(ChainMap(*results))
+        return degreeList
+
+    def _get_order_degreelist_node_parallel(self, part_list, job_id, max_num_layers=None):
+        part_degreeList = {}
+        time_start = time.time()
+        for i, (_, v) in enumerate(part_list):
+            part_degreeList[v] = self._get_order_degreelist_node(v, max_num_layers)
+            if (i+1) % 100 == 0:
+                print('GODNP job_id: ' + str(job_id) + '; finish: ' + str(i+1) + '/' + str(len(part_list)) + '; time spend: ' + str(time.time() - time_start))
+                time_start = time.time()
+        return part_degreeList
+
+    def _get_order_degreelist_node(self, root, max_num_layers=None):
+        if max_num_layers is None:
+            max_num_layers = float('inf') # max number in python
+
+        ordered_degree_sequence_dict = {}
+        visited = [False] * len(self.graph.nodes())
+        queue = deque()
+        level = 0
+        queue.append(root)
+        visited[root] = True
+
+        while (len(queue) > 0 and level <= max_num_layers):
+
+            count = len(queue)
+            if self.opt1_reduce_len:
+                degree_list = {}
+            else:
+                degree_list = []
+            while (count > 0):
+
+                top = queue.popleft()
+                node = self.idx2node[top]
+                degree = len(self.graph[node])
+
+                if self.opt1_reduce_len:
+                    degree_list[degree] = degree_list.get(degree, 0) + 1
+                else:
+                    degree_list.append(degree)
+
+                for nei in self.graph[node]:
+                    nei_idx = self.node2idx[nei]
+                    if not visited[nei_idx]:
+                        visited[nei_idx] = True
+                        queue.append(nei_idx)
+                count -= 1
+            if self.opt1_reduce_len:
+                orderd_degree_list = [(degree, freq)
+                                      for degree, freq in degree_list.items()]
+                orderd_degree_list.sort(key=lambda x: x[0])
+            else:
+                orderd_degree_list = sorted(degree_list)
+            ordered_degree_sequence_dict[level] = orderd_degree_list
+            level += 1
+
+        return ordered_degree_sequence_dict
+
     def _create_vectors(self):
         print(str(time.asctime(time.localtime(time.time()))) + ' _create_vectors')
         degrees = {}  # sotre v list of degree
@@ -201,15 +225,15 @@ class Struc2Vec():
 
     def _get_layer_rep(self, pair_distances):
         print(str(time.asctime(time.localtime(time.time()))) + ' _get_layer_rep')
-        layers_distances = {}
+        layers_sim_scores = {}
         layers_adj = {}
         for v_pair, layer_dist in pair_distances.items():
             for layer, distance in layer_dist.items():
                 vx = v_pair[0]
                 vy = v_pair[1]
 
-                layers_distances.setdefault(layer, {})
-                layers_distances[layer][vx, vy] = distance
+                layers_sim_scores.setdefault(layer, {})
+                layers_sim_scores[layer][vx, vy] = np.exp(-float(distance))
 
                 layers_adj.setdefault(layer, {})
                 layers_adj[layer].setdefault(vx, [])
@@ -217,104 +241,27 @@ class Struc2Vec():
                 layers_adj[layer][vx].append(vy)
                 layers_adj[layer][vy].append(vx)
 
-        return layers_adj, layers_distances
+        self.norm_sim_score(layers_adj, layers_sim_scores)
+        return layers_adj, layers_sim_scores
 
-    # def _get_transition_probs(self, layers_adj, layers_distances):
-    #     print(str(time.asctime(time.localtime(time.time()))) + ' _get_transition_probs')
-    #     layers_alias = {}
-    #     layers_accept = {}
-
-    #     for layer in layers_adj:
-
-    #         neighbors_dict = layers_adj[layer]
-    #         layer_distances = layers_distances[layer]
-    #         node_alias_dict = {}
-    #         node_accept_dict = {}
-    #         norm_weights = {}
-
-    #         for v, neighbors in neighbors_dict.items():
-    #             e_list = []
-    #             sum_w = 0.0
-
-    #             for n in neighbors:
-    #                 if (v, n) in layer_distances:
-    #                     wd = layer_distances[v, n]
-    #                 else:
-    #                     wd = layer_distances[n, v]
-    #                 w = np.exp(-float(wd))
-    #                 e_list.append(w)
-    #                 sum_w += w
-
-    #             e_list = [x / sum_w for x in e_list]
-    #             norm_weights[v] = e_list
-                # accept, alias = create_alias_table(e_list)
-    #             node_alias_dict[v] = alias
-    #             node_accept_dict[v] = accept
-
-    #         pd.to_pickle(
-    #             norm_weights, self.temp_path + 'norm_weights_distance-layer-' + str(layer)+'.pkl')
-
-    #         layers_alias[layer] = node_alias_dict
-    #         layers_accept[layer] = node_accept_dict
-
-    #     return layers_accept, layers_alias
-
-    # def prepare_biased_walk(self,):
-    #     print(str(time.asctime(time.localtime(time.time()))) + ' prepare_biased_walk')
-
-    #     sum_weights = {}
-    #     sum_edges = {}
-    #     average_weight = {}
-    #     gamma = {}
-    #     layer = 0
-    #     while (os.path.exists(self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')):
-    #         probs = pd.read_pickle(
-    #             self.temp_path+'norm_weights_distance-layer-' + str(layer)+'.pkl')
-    #         for v, list_weights in probs.items():
-    #             sum_weights.setdefault(layer, 0)
-    #             sum_edges.setdefault(layer, 0)
-    #             sum_weights[layer] += sum(list_weights)
-    #             sum_edges[layer] += len(list_weights)
-
-    #         average_weight[layer] = sum_weights[layer] / sum_edges[layer]
-
-    #         gamma.setdefault(layer, {})
-
-    #         for v, list_weights in probs.items():
-    #             num_neighbours = 0
-    #             for w in list_weights:
-    #                 if (w > average_weight[layer]):
-    #                     num_neighbours += 1
-    #             gamma[layer][v] = num_neighbours
-
-    #         layer += 1
-
-    #     pd.to_pickle(average_weight, self.temp_path + 'average_weight')
-    #     pd.to_pickle(gamma, self.temp_path + 'gamma.pkl')
-
-    # def train(self, embed_size=128, window_size=5, workers=4, iter=5):
-
-    #     # pd.read_pickle(self.temp_path+'walks.pkl')
-    #     sentences = self.sentences
-
-    #     print("Learning representation...")
-    #     model = Word2Vec(sentences, size=embed_size, window=window_size, min_count=0, hs=1, sg=1, workers=workers,
-    #                      iter=iter)
-    #     print("Learning representation done!")
-    #     self.w2v_model = model
-
-    #     return model
-
-    # def get_embeddings(self,):
-    #     if self.w2v_model is None:
-    #         print("model not train")
-    #         return {}
-
-    #     self._embeddings = {}
-    #     for word in self.graph.nodes():
-    #         self._embeddings[word] = self.w2v_model.wv[word]
-
-    #     return self._embeddings
+    def norm_sim_score(self, layers_adj, layers_sim_scores):
+        print(str(time.asctime(time.localtime(time.time()))) + ' norm_sim_score')
+        for layer in layers_adj:
+            neighbors_dict = layers_adj[layer]
+            layer_sim_scores = layers_sim_scores[layer]
+            for v, neighbors in neighbors_dict.items():
+                sum_score = 0.0
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        sim_score = layer_sim_scores[v, n]
+                    else:
+                        sim_score = layer_sim_scores[n, v]
+                    sum_score += sim_score
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        layer_sim_scores[v, n] = layer_sim_scores[v, n] / sum_score
+                    else:
+                        layer_sim_scores[n, v] = layer_sim_scores[n, v] / sum_score
 
 
 def cost(a, b):

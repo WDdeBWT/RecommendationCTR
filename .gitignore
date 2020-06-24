@@ -1,5 +1,10 @@
+*.pkl
+test.py
+test_dgl.py
+
 data/
 data_lgcn/
+temp_struc2vec/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

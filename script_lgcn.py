@@ -99,7 +99,7 @@ def test(data_set, model, data_loader, show_auc = False):
 
 
 if __name__ == "__main__":
-    data_set = DataOnlyCF('data_lgcn/gowalla/train.txt', 'data_lgcn/gowalla/test.txt')
+    data_set = DataOnlyCF('data_for_test/gowalla/train.txt', 'data_for_test/gowalla/test.txt')
     G = data_set.get_interaction_graph()
     G.ndata['id'] = G.ndata['id'].to(device) # move graph data to target device
     G.ndata['sqrt_degree'] = G.ndata['sqrt_degree'].to(device) # move graph data to target device

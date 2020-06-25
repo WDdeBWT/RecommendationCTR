@@ -119,8 +119,10 @@ class Struc2Vec():
                 for v in degreeList:
                     vertices[v] = [vd for vd in degreeList.keys() if vd > v]
 
-            results = Parallel(n_jobs=workers, verbose=verbose,)(
-                delayed(compute_dtw_dist)(part_list, degreeList, dist_func) for part_list in partition_dict(vertices, workers))
+            print(str(time.asctime(time.localtime(time.time()))) + ' compute_dtw_dist')
+            workers_limit = min(3, workers) # 16GB RAM only support 3 workers
+            results = Parallel(n_jobs=workers_limit, verbose=verbose,)(
+                delayed(compute_dtw_dist)(part_list, degreeList, dist_func, job_id) for job_id, part_list in enumerate(partition_dict(vertices, workers_limit)))
             dtw_dist = dict(ChainMap(*results))
 
             structural_dist = convert_dtw_struc_dist(dtw_dist)
@@ -372,9 +374,10 @@ def verifyDegrees(degrees, degree_v_root, degree_a, degree_b):
     return degree_now
 
 
-def compute_dtw_dist(part_list, degreeList, dist_func):
+def compute_dtw_dist(part_list, degreeList, dist_func, job_id):
     dtw_dist = {}
-    for v1, nbs in part_list:
+    time_start = time.time()
+    for i, (v1, nbs) in enumerate(part_list):
         lists_v1 = degreeList[v1]  # lists_v1 :orderd degree list of v1
         for v2 in nbs:
             lists_v2 = degreeList[v2]  # lists_v1 :orderd degree list of v2
@@ -384,4 +387,7 @@ def compute_dtw_dist(part_list, degreeList, dist_func):
                 dist, path = fastdtw(
                     lists_v1[layer], lists_v2[layer], radius=1, dist=dist_func)
                 dtw_dist[v1, v2][layer] = dist
+        if (i+1) % 100 == 0:
+            print('CDD job_id: ' + str(job_id) + '; finish: ' + str(i+1) + '/' + str(len(part_list)) + '; time spend: ' + str(time.time() - time_start))
+            time_start = time.time()
     return dtw_dist

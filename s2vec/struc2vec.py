@@ -122,7 +122,7 @@ class Struc2Vec():
             print(str(time.asctime(time.localtime(time.time()))) + ' compute_dtw_dist')
             workers_limit = min(3, workers) # 16GB RAM only support 3 workers
             results = Parallel(n_jobs=workers_limit, verbose=verbose,)(
-                delayed(compute_dtw_dist)(part_list, degreeList, dist_func, job_id) for job_id, part_list in enumerate(partition_dict(vertices, workers_limit)))
+                delayed(compute_dtw_dist)(part_list, degreeList, dist_func, job_id + 1) for job_id, part_list in enumerate(partition_dict(vertices, workers_limit)))
             dtw_dist = dict(ChainMap(*results))
 
             structural_dist = convert_dtw_struc_dist(dtw_dist)

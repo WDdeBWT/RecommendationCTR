@@ -26,7 +26,3 @@ if __name__ == "__main__":
     g_list = s2v.get_struc_graphs()
     for i, g in enumerate(g_list):
         print(i, len(g.nodes), len(g.edges))
-    # model.train()
-    # embeddings = model.get_embeddings()
-    # import pickle
-    # pickle.dump(embeddings, 'trained_embeddings.pkl')

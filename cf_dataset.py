@@ -1,9 +1,12 @@
 import time
 
 import dgl
+import numpy as np
+import networkx as nx
 import torch
 from torch.utils.data import DataLoader
-import numpy as np
+
+from s2vec.struc2vec import Struc2Vec
 
 class TestDatasetOnlyCF(torch.utils.data.Dataset):
 
@@ -82,6 +85,15 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
         return g
 
+    def build_struc_graph(self):
+        nx_rec_g = nx.Graph()
+        nx_rec_g.add_nodes_from(range(self.n_users + self.n_items))
+        edges = np.concatenate((self.train_data[0].reshape(-1, 1), self.train_data[1].reshape(-1, 1) + self.n_users), 1)
+        nx_rec_g.add_edges_from(edges)
+        s2v = Struc2Vec(nx_rec_g, workers=4, verbose=40, opt3_num_layers=3, reuse=True)
+        g_list = s2v.get_struc_graphs()
+        return g_list
+
     # def __len__(self): # first version
     #     return len(self.train_user_list)
 
@@ -100,20 +112,9 @@ class DataOnlyCF(torch.utils.data.Dataset):
     def __len__(self): # secend/third version
         return self.n_train
 
-    def __getitem__(self, index): # secend version
-        user_id = np.random.randint(0, self.n_users)
-        pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
-        while True:
-            neg_id = np.random.randint(0, self.n_items)
-            if neg_id in self.train_user_dict[user_id]:
-                continue
-            else:
-                break
-        return user_id, pos_id, neg_id
-
-    # def __getitem__(self, index): # third version
-    #     user_id = self.train_data[0][index]
-    #     pos_id = self.train_data[1][index]
+    # def __getitem__(self, index): # secend version
+    #     user_id = np.random.randint(0, self.n_users)
+    #     pos_id = self.train_user_dict[user_id][np.random.randint(0, len(self.train_user_dict[user_id]))]
     #     while True:
     #         neg_id = np.random.randint(0, self.n_items)
     #         if neg_id in self.train_user_dict[user_id]:
@@ -121,6 +122,17 @@ class DataOnlyCF(torch.utils.data.Dataset):
     #         else:
     #             break
     #     return user_id, pos_id, neg_id
+
+    def __getitem__(self, index): # third version
+        user_id = self.train_data[0][index]
+        pos_id = self.train_data[1][index]
+        while True:
+            neg_id = np.random.randint(0, self.n_items)
+            if neg_id in self.train_user_dict[user_id]:
+                continue
+            else:
+                break
+        return user_id, pos_id, neg_id
 
     def get_interaction_graph(self):
         return self.G

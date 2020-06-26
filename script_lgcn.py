@@ -10,7 +10,7 @@ from cf_dataset import DataOnlyCF
 from light_gcn.lgcn_model import LightGCN
 from metrics import precision_and_recall, ndcg, auc
 
-EPOCH = 200
+EPOCH = 100
 LR = 0.001
 EDIM = 64
 LAYERS = 3

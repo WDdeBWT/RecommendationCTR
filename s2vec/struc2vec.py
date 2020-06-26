@@ -58,19 +58,24 @@ class Struc2Vec():
             neighbors_dict = self.layers_adj[layer]
             layer_sim_scores = self.layers_sim_scores[layer]
             for v, neighbors in neighbors_dict.items():
+                sum_score = 0.0
                 for n in neighbors:
                     if (v, n) in layer_sim_scores:
                         sim_score = layer_sim_scores[v, n]
                     else:
                         sim_score = layer_sim_scores[n, v]
-                    edge_list.append((v, n))
-                    edge_weight_list.append(sim_score)
-                    edge_list.append((n, v))
-                    edge_weight_list.append(sim_score)
+                    sum_score += sim_score
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        normed_sim_score = layer_sim_scores[v, n] / sum_score
+                    else:
+                        normed_sim_score = layer_sim_scores[n, v] / sum_score
+                    edge_list.append((n, v)) # form n to v
+                    edge_weight_list.append(normed_sim_score)
             edge_list = np.array(edge_list, dtype=int)
             g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
-            g.add_edges(edge_list[:, 1:].squeeze(), edge_list[:, :1].squeeze())
             g.readonly()
+            g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
             g.edata['weight'] = torch.tensor(edge_weight_list)
             struc_graphs.append(g)
         return struc_graphs
@@ -120,14 +125,15 @@ class Struc2Vec():
                     vertices[v] = [vd for vd in degreeList.keys() if vd > v]
 
             print(str(time.asctime(time.localtime(time.time()))) + ' compute_dtw_dist')
-            workers_limit = min(3, workers) # 16GB RAM only support 3 workers
+            workers_limit = min(2, workers) # 16GB RAM only support 2 workers
             results = Parallel(n_jobs=workers_limit, verbose=verbose,)(
-                delayed(compute_dtw_dist)(part_list, degreeList, dist_func, job_id + 1) for job_id, part_list in enumerate(partition_dict(vertices, workers_limit)))
+                delayed(compute_dtw_dist)(
+                    part_list, degreeList, dist_func, job_id + 1) for job_id, part_list in enumerate(
+                        partition_dict(vertices, workers_limit)))
             dtw_dist = dict(ChainMap(*results))
 
             structural_dist = convert_dtw_struc_dist(dtw_dist)
-            pd.to_pickle(structural_dist, self.temp_path +
-                         'structural_dist.pkl')
+            pd.to_pickle(structural_dist, self.temp_path + 'structural_dist.pkl')
 
         return structural_dist
 
@@ -243,7 +249,7 @@ class Struc2Vec():
                 layers_adj[layer][vx].append(vy)
                 layers_adj[layer][vy].append(vx)
 
-        self.norm_sim_score(layers_adj, layers_sim_scores)
+        # self.norm_sim_score(layers_adj, layers_sim_scores)
         return layers_adj, layers_sim_scores
 
     def norm_sim_score(self, layers_adj, layers_sim_scores):

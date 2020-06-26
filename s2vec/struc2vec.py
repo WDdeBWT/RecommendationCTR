@@ -51,6 +51,7 @@ class Struc2Vec():
         n_nodes = len(self.idx)
         struc_graphs = []
         for layer in self.layers_adj:
+            # times = 0
             g = dgl.DGLGraph()
             g.add_nodes(n_nodes)
             edge_list = []
@@ -65,6 +66,18 @@ class Struc2Vec():
                     else:
                         sim_score = layer_sim_scores[n, v]
                     sum_score += sim_score
+                if sum_score == 0:
+                    # for n in neighbors:
+                    #     assert (v, n) in layer_sim_scores or (n, v) in layer_sim_scores
+                    #     if (v, n) in layer_sim_scores:
+                    #         sim_score = layer_sim_scores[v, n]
+                    #         times += 1
+                    #     else:
+                    #         sim_score = layer_sim_scores[n, v]
+                    #         times += 1
+                    #     assert sim_score == 0
+                    # sum_score = 1
+                    continue
                 for n in neighbors:
                     if (v, n) in layer_sim_scores:
                         normed_sim_score = layer_sim_scores[v, n] / sum_score
@@ -78,6 +91,7 @@ class Struc2Vec():
             g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
             g.edata['weight'] = torch.tensor(edge_weight_list)
             struc_graphs.append(g)
+            # print('times', times)
         return struc_graphs
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
@@ -173,14 +187,12 @@ class Struc2Vec():
         visited[root] = True
 
         while (len(queue) > 0 and level <= max_num_layers):
-
             count = len(queue)
             if self.opt1_reduce_len:
                 degree_list = {}
             else:
                 degree_list = []
             while (count > 0):
-
                 top = queue.popleft()
                 node = self.idx2node[top]
                 degree = len(self.graph[node])

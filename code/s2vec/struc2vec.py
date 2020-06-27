@@ -19,7 +19,7 @@ from .utils import partition_dict, partition_list, preprocess_nxgraph
 
 
 class Struc2Vec():
-    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec/', reuse=False):
+    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='../temp_struc2vec/', reuse=False):
         self.graph = graph
         self.idx2node, self.node2idx = preprocess_nxgraph(graph)
         self.idx = list(range(len(self.idx2node)))
@@ -67,16 +67,6 @@ class Struc2Vec():
                         sim_score = layer_sim_scores[n, v]
                     sum_score += sim_score
                 if sum_score == 0:
-                    # for n in neighbors:
-                    #     assert (v, n) in layer_sim_scores or (n, v) in layer_sim_scores
-                    #     if (v, n) in layer_sim_scores:
-                    #         sim_score = layer_sim_scores[v, n]
-                    #         times += 1
-                    #     else:
-                    #         sim_score = layer_sim_scores[n, v]
-                    #         times += 1
-                    #     assert sim_score == 0
-                    # sum_score = 1
                     continue
                 for n in neighbors:
                     if (v, n) in layer_sim_scores:
@@ -93,6 +83,44 @@ class Struc2Vec():
             struc_graphs.append(g)
             # print('times', times)
         return struc_graphs
+
+    def get_sumed_struc_graph(self):
+        # build dgl graph of each layer and sum the weight to one
+        n_nodes = len(self.idx)
+        edge_dict = {}
+        for layer in self.layers_adj:
+            g = dgl.DGLGraph()
+            g.add_nodes(n_nodes)
+            neighbors_dict = self.layers_adj[layer]
+            layer_sim_scores = self.layers_sim_scores[layer]
+            for v, neighbors in neighbors_dict.items():
+                sum_score = 0.0
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        sim_score = layer_sim_scores[v, n]
+                    else:
+                        sim_score = layer_sim_scores[n, v]
+                    sum_score += sim_score
+                if sum_score == 0:
+                    continue
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        normed_sim_score = layer_sim_scores[v, n] / sum_score
+                    else:
+                        normed_sim_score = layer_sim_scores[n, v] / sum_score
+                    edge_dict.setdefault((n, v), 0)
+                    edge_dict[n, v] += normed_sim_score
+        edge_list = []
+        edge_weight_list = []
+        for key in edge_dict:
+            edge_list.append(key)
+            edge_weight_list.append(edge_dict[key])
+        edge_list = np.array(edge_list, dtype=int)
+        g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
+        g.readonly()
+        g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
+        g.edata['weight'] = torch.tensor(edge_weight_list)
+        return g
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
         print(str(time.asctime(time.localtime(time.time()))) + ' create_context_graph')

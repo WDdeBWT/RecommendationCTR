@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 from cf_dataset import DataOnlyCF
-from light_gcn.lgcn_model import LightGCN
+from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
 EPOCH = 100
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     G.ndata['sqrt_degree'] = G.ndata['sqrt_degree'].to(device) # move graph data to target device
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
-    model = LightGCN(n_users, n_items, G, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)
+    model = CFGCN(n_users, n_items, G, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)
     train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=4)
     test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=4)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)

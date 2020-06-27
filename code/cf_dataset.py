@@ -85,13 +85,14 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
         return g
 
-    def build_struc_graph(self):
+    def build_struc_graphs(self):
         nx_rec_g = nx.Graph()
         nx_rec_g.add_nodes_from(range(self.n_users + self.n_items))
         edges = np.concatenate((self.train_data[0].reshape(-1, 1), self.train_data[1].reshape(-1, 1) + self.n_users), 1)
         nx_rec_g.add_edges_from(edges)
         s2v = Struc2Vec(nx_rec_g, workers=4, verbose=40, opt3_num_layers=3, reuse=True)
-        g_list = s2v.get_struc_graphs()
+        # g_list = s2v.get_struc_graphs()
+        g_list = [s2v.get_sumed_struc_graph()]
         return g_list
 
     # def __len__(self): # first version

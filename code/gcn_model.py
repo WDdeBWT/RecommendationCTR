@@ -5,10 +5,10 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class LightGCN(nn.Module):
+class CFGCN(nn.Module):
 
     def __init__(self, n_users, n_items, itra_G, struc_Gs=None, embed_dim=64, n_layers=3, lam=0.001):
-        super(LightGCN, self).__init__()
+        super(CFGCN, self).__init__()
 
         self.n_users = n_users
         self.n_items = n_items
@@ -135,6 +135,7 @@ def AggregateUnweighted(g, entity_embed):
 def AggregateWeighted(g, entity_embed):
     # try to use a static func instead of a object
     g = g.local_var()
+    g.ndata['node'] = entity_embed
     g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
     return g.ndata['N_h']
 

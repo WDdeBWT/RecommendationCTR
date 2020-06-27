@@ -26,6 +26,7 @@ class CFGCN(nn.Module):
             self.aggregate_layers_itra.append(AggregateUnweighted)
 
         if self.struc_Gs is not None:
+            # self.embedding_user_item_struc = self.embedding_user_item_itra
             self.embedding_user_item_struc = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
             nn.init.xavier_uniform_(self.embedding_user_item_struc.weight, gain=1)
             self.aggregate_layers_struc = []
@@ -67,7 +68,6 @@ class CFGCN(nn.Module):
             users_emb = users_emb_itra
             pos_emb = pos_emb_itra
             neg_emb = neg_emb_itra
-            
 
         pos_scores = torch.sum(users_emb * pos_emb, dim=1)
         neg_scores = torch.sum(users_emb * neg_emb, dim=1)
@@ -137,6 +137,8 @@ def AggregateWeighted(g, entity_embed):
     g = g.local_var()
     g.ndata['node'] = entity_embed
     g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
+    # g.update_all(lambda edges: {'side' : edges.src['node'] * edges.data['weight']},
+    #              lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
     return g.ndata['N_h']
 
 

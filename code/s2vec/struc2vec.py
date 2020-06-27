@@ -79,7 +79,7 @@ class Struc2Vec():
             g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
             g.readonly()
             g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-            g.edata['weight'] = torch.tensor(edge_weight_list)
+            g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
             struc_graphs.append(g)
             # print('times', times)
         return struc_graphs
@@ -119,7 +119,7 @@ class Struc2Vec():
         g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
         g.readonly()
         g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-        g.edata['weight'] = torch.tensor(edge_weight_list)
+        g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
         return g
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):

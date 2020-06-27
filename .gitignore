@@ -1,6 +1,7 @@
 *.pkl
 test.py
 test_dgl.py
+copy_code.sh
 
 data/
 data_lgcn/

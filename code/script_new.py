@@ -10,7 +10,7 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-EPOCH = 100
+EPOCH = 30
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -107,6 +107,8 @@ if __name__ == "__main__":
     for g in struc_Gs:
         g.ndata['id'] = g.ndata['id'].to(device)
         g.edata['weight'] = g.edata['weight'].to(device)
+    EPOCH = 10
+    # struc_Gs = None
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
     model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)

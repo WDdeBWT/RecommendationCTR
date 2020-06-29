@@ -19,7 +19,7 @@ from .utils import partition_dict, partition_list, preprocess_nxgraph
 
 
 class Struc2Vec():
-    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='../temp_struc2vec/', reuse=False):
+    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec/', reuse=False):
         self.graph = graph
         self.idx2node, self.node2idx = preprocess_nxgraph(graph)
         self.idx = list(range(len(self.idx2node)))
@@ -114,7 +114,7 @@ class Struc2Vec():
         edge_weight_list = []
         for key in edge_dict:
             edge_list.append(key)
-            edge_weight_list.append(edge_dict[key])
+            edge_weight_list.append(edge_dict[key] / len(self.layers_adj.keys()))
         edge_list = np.array(edge_list, dtype=int)
         g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
         g.readonly()

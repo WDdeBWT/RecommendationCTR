@@ -26,9 +26,9 @@ class CFGCN(nn.Module):
             self.aggregate_layers_itra.append(AggregateUnweighted)
 
         if self.struc_Gs is not None:
-            # self.embedding_user_item_struc = self.embedding_user_item_itra
-            self.embedding_user_item_struc = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
-            nn.init.xavier_uniform_(self.embedding_user_item_struc.weight, gain=1)
+            self.embedding_user_item_struc = self.embedding_user_item_itra
+            # self.embedding_user_item_struc = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
+            # nn.init.xavier_uniform_(self.embedding_user_item_struc.weight, gain=1)
             self.aggregate_layers_struc = []
             for k in range(self.n_layers):
                 self.aggregate_layers_struc.append(AggregateWeighted)

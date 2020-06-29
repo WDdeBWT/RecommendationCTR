@@ -10,7 +10,7 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-EPOCH = 30
+EPOCH = 500
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -103,12 +103,11 @@ if __name__ == "__main__":
     itra_G = data_set.get_interaction_graph()
     itra_G.ndata['id'] = itra_G.ndata['id'].to(device) # move graph data to target device
     itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device) # move graph data to target device
-    struc_Gs = data_set.build_struc_graphs()
-    for g in struc_Gs:
-        g.ndata['id'] = g.ndata['id'].to(device)
-        g.edata['weight'] = g.edata['weight'].to(device)
-    EPOCH = 10
-    # struc_Gs = None
+    struc_Gs = data_set.build_struc_graphs(sumed=True)
+    # for g in struc_Gs:
+    #     g.ndata['id'] = g.ndata['id'].to(device)
+    #     g.edata['weight'] = g.edata['weight'].to(device)
+    struc_Gs = None
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
     model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)
@@ -125,11 +124,22 @@ if __name__ == "__main__":
     print('==================================================')
     test(data_set, model, test_data_loader)
 
-# run data_lgcn/gowalla at epoch 300 gowalla
+# run data_lgcn/gowalla gowalla
+# at epoch 50 precision 0.0406273132632997; recall 0.13624640704870125; ndcg 0.11335605664660738
+# at epoch 100 precision 0.043916843150558604; recall 0.1494013824889015; ndcg 0.12420528799591576
+# at epoch 200 precision 0.04701247577120442; recall 0.16131859933809437; ndcg 0.13461157598002454
+# at epoch 300 precision 0.04827474044105054; recall 0.1658744830844509; ndcg 0.13881823365718912
+# at epoch 400 precision 0.04889910796038417; recall 0.16776382478552415; ndcg 0.14091457113502115
+# at epoch 500 precision 0.04972081819634011; recall 0.17046915726601; ndcg 0.14296358168788104
+# epoch 300 (old)
 # train loss 0.015; evaluate loss 0.134
 # test result: precision 0.047575934218717066; recall 0.16351703048292573; ndcg 0.13673274095554458
+# max
+# recall 0.172; ndcg 0.143
 
 # Paper code at epoch 50 gowalla
 # {'precision': array([0.04382075]), 'recall': array([0.14503336]), 'ndcg': array([0.12077126]), 'auc': 0.9587075653077938}
 # Paper code at epoch 80 gowalla
 # {'precision': array([0.0468166]), 'recall': array([0.15585551]), 'ndcg': array([0.13010746]), 'auc': 0.9582199598920466}
+# Paper code at epoch 400 gowalla
+# {'precision': array([0.05400898]), 'recall': array([0.17730673]), 'ndcg': array([0.15099276]), 'auc': 0.9508640011701547}

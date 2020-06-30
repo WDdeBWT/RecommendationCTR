@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from s2vec.struc2vec import Struc2Vec
 
+
 class TestDatasetOnlyCF(torch.utils.data.Dataset):
 
     def __init__(self, train_user_dict, test_user_dict, test_user_list, n_items):
@@ -32,6 +33,48 @@ class TestDatasetOnlyCF(torch.utils.data.Dataset):
             else:
                 break
         return user_id, pos_id, neg_id
+
+
+class EvaluateDatasetOnlyCF(torch.utils.data.Dataset):
+
+    def __init__(self, train_user_dict, test_user_dict, test_user_list, test_data, n_items, n_users, n_test):
+        self.train_user_dict = train_user_dict
+        self.test_user_dict = test_user_dict
+        self.test_user_list = test_user_list
+        self.n_items = n_items
+        self.n_users = n_users
+        self.n_test = n_test
+        self.test_data = test_data
+
+    def __len__(self):
+        return self.n_test
+
+    # def __getitem__(self, index): # secend version
+    #     user_id = np.random.randint(0, self.n_users)
+    #     pos_id = self.test_user_dict[user_id][np.random.randint(0, len(self.test_user_dict[user_id]))]
+    #     while True:
+    #         neg_id = np.random.randint(0, self.n_items)
+    #         if neg_id in self.train_user_dict[user_id]:
+    #             continue
+    #         elif neg_id in self.test_user_dict[user_id]:
+    #             continue
+    #         else:
+    #             break
+    #     return user_id, pos_id, neg_id
+
+    def __getitem__(self, index): # third version
+        user_id = self.test_data[0][index]
+        pos_id = self.test_data[1][index]
+        while True:
+            neg_id = np.random.randint(0, self.n_items)
+            if neg_id in self.train_user_dict[user_id]:
+                continue
+            elif neg_id in self.test_user_dict[user_id]:
+                continue
+            else:
+                break
+        return user_id, pos_id, neg_id
+
 
 class DataOnlyCF(torch.utils.data.Dataset):
 
@@ -148,6 +191,9 @@ class DataOnlyCF(torch.utils.data.Dataset):
 
     def get_train_data(self):
         return self.train_data
+
+    def get_evaluate_dataset(self):
+        return EvaluateDatasetOnlyCF(self.train_user_dict, self.test_user_dict, self.test_user_list, self.test_data, self.n_items, self.n_users, self.n_test)
 
     def get_test_dataset(self):
         return TestDatasetOnlyCF(self.train_user_dict, self.test_user_dict, self.test_user_list, self.n_items)

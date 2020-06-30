@@ -24,6 +24,9 @@ class CFGCN(nn.Module):
         self.aggregate_layers_itra = []
         for k in range(self.n_layers):
             self.aggregate_layers_itra.append(AggregateUnweighted)
+        self.aggregate_layers_itra_p = []
+        for k in range(self.n_layers):
+            self.aggregate_layers_itra_p.append(AggregateUnweighted_p)
 
         if self.struc_Gs is not None:
             self.embedding_user_item_struc = self.embedding_user_item_itra
@@ -76,7 +79,7 @@ class CFGCN(nn.Module):
         return loss + self.lam * reg_loss
 
     def get_users_ratings(self, users):
-        propagated_embed_itra = propagate_embedding(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra)
+        propagated_embed_itra = propagate_embedding(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra_p)
         users_emb_itra = propagated_embed_itra[users.long()]
         items_emb_itra = propagated_embed_itra[self.n_users:]
 
@@ -121,6 +124,15 @@ def propagate_embedding(g_in, ebd_in, agg_layers_in):
 #     g.update_all(lambda edges: {'side': edges.src['node'] * edges.src['sqrt_degree']},
 #                  lambda nodes: {'N_h': nodes.data['sqrt_degree'] * torch.sum(nodes.mailbox['side'], 1)})
 #     return g.ndata['N_h']
+
+
+def AggregateUnweighted_p(g, entity_embed):
+    # try to use a static func instead of a object
+    g = g.local_var()
+    g.ndata['node'] = entity_embed * g.ndata['sqrt_degree']
+    g.update_all(dgl.function.copy_src(src='node', out='side'), lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
+    g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['sqrt_degree']
+    return g.ndata['N_h']
 
 
 def AggregateUnweighted(g, entity_embed):

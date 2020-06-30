@@ -10,7 +10,7 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-EPOCH = 500
+EPOCH = 1000
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -31,9 +31,7 @@ def train(model, data_loader, optimizer, log_interval=10):
         loss = model.bpr_loss(user_ids, pos_ids, neg_ids)
         # print('train loss ' + str(i) + '/' + str(len(data_loader)) + ': ' + str(loss))
         model.zero_grad()
-        time_start = time.time()
         loss.backward()
-        # print('loss.backward time:' + str(time.time() - time_start))
         optimizer.step()
         total_loss += loss.cpu().item()
         # if (i + 1) % log_interval == 0:
@@ -103,7 +101,7 @@ if __name__ == "__main__":
     itra_G = data_set.get_interaction_graph()
     itra_G.ndata['id'] = itra_G.ndata['id'].to(device) # move graph data to target device
     itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device) # move graph data to target device
-    struc_Gs = data_set.build_struc_graphs(sumed=True)
+    # struc_Gs = data_set.build_struc_graphs(sumed=True)
     # for g in struc_Gs:
     #     g.ndata['id'] = g.ndata['id'].to(device)
     #     g.edata['weight'] = g.edata['weight'].to(device)
@@ -111,13 +109,14 @@ if __name__ == "__main__":
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
     model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)
-    train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=4)
-    test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=4)
+    train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=2)
+    evaluate_data_loader = DataLoader(data_set.get_evaluate_dataset(), batch_size=4096, num_workers=2)
+    test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=2)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
     for epoch_i in range(EPOCH):
         print('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(EPOCH))
         train(model, train_data_loader, optimizer)
-        evaluate(model, test_data_loader)
+        evaluate(model, evaluate_data_loader)
         if (epoch_i + 1) % 10 == 0:
             test(data_set, model, test_data_loader)
         print('--------------------------------------------------')

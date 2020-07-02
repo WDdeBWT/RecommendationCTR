@@ -51,7 +51,6 @@ class Struc2Vec():
         n_nodes = len(self.idx)
         struc_graphs = []
         for layer in self.layers_adj:
-            # times = 0
             g = dgl.DGLGraph()
             g.add_nodes(n_nodes)
             edge_list = []
@@ -81,7 +80,6 @@ class Struc2Vec():
             g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
             g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
             struc_graphs.append(g)
-            # print('times', times)
         return struc_graphs
 
     def get_sumed_struc_graph(self):
@@ -120,6 +118,46 @@ class Struc2Vec():
         g.readonly()
         g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
         g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
+        return g
+
+    def get_pruned_struc_graph(self):
+        # build dgl graph of last layer and prune the low weight
+        n_nodes = len(self.idx)
+        layer = max(self.layers_adj.keys())
+        g = dgl.DGLGraph()
+        g.add_nodes(n_nodes)
+        edge_list = []
+        edge_weight_list = []
+        neighbors_dict = self.layers_adj[layer]
+        layer_sim_scores = self.layers_sim_scores[layer]
+        for v, neighbors in neighbors_dict.items():
+            max_score = 0.0
+            for n in neighbors:
+                if (v, n) in layer_sim_scores:
+                    sim_score = layer_sim_scores[v, n]
+                else:
+                    sim_score = layer_sim_scores[n, v]
+                max_score = sim_score if sim_score > max_score else max_score
+            mid_score = max_score / 100 # cut the low sim edge
+            if mid_score == 0:
+                continue
+            for n in neighbors:
+                if (v, n) in layer_sim_scores:
+                    sim_score = layer_sim_scores[v, n]
+                else:
+                    sim_score = layer_sim_scores[n, v]
+                if sim_score > mid_score:
+                    edge_list.append((n, v)) # form n to v
+                    edge_weight_list.append(sim_score)
+        edge_list = np.array(edge_list, dtype=int)
+        g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
+        g.readonly()
+        g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
+        g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
+        g.ndata['out_sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
+        g.ndata['in_sqrt_degree'] = 1 / torch.sqrt(g.in_degrees().float().unsqueeze(-1))
+        g.ndata['out_sqrt_degree'][torch.isinf(g.ndata['out_sqrt_degree'])] = 0
+        g.ndata['in_sqrt_degree'][torch.isinf(g.ndata['in_sqrt_degree'])] = 0
         return g
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
@@ -289,27 +327,7 @@ class Struc2Vec():
                 layers_adj[layer][vx].append(vy)
                 layers_adj[layer][vy].append(vx)
 
-        # self.norm_sim_score(layers_adj, layers_sim_scores)
         return layers_adj, layers_sim_scores
-
-    def norm_sim_score(self, layers_adj, layers_sim_scores):
-        print(str(time.asctime(time.localtime(time.time()))) + ' norm_sim_score')
-        for layer in layers_adj:
-            neighbors_dict = layers_adj[layer]
-            layer_sim_scores = layers_sim_scores[layer]
-            for v, neighbors in neighbors_dict.items():
-                sum_score = 0.0
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        sim_score = layer_sim_scores[v, n]
-                    else:
-                        sim_score = layer_sim_scores[n, v]
-                    sum_score += sim_score
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        layer_sim_scores[v, n] = layer_sim_scores[v, n] / sum_score
-                    else:
-                        layer_sim_scores[n, v] = layer_sim_scores[n, v] / sum_score
 
 
 def cost(a, b):

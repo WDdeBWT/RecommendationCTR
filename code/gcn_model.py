@@ -147,10 +147,11 @@ def AggregateUnweighted(g, entity_embed):
 def AggregateWeighted(g, entity_embed):
     # try to use a static func instead of a object
     g = g.local_var()
-    g.ndata['node'] = entity_embed
+    g.ndata['node'] = entity_embed * g.ndata['out_sqrt_degree']
     g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
     # g.update_all(lambda edges: {'side' : edges.src['node'] * edges.data['weight']},
     #              lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
+    g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['in_sqrt_degree']
     return g.ndata['N_h']
 
 

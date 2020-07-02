@@ -57,6 +57,7 @@ def evaluate(model, data_loader):
 def test(data_set, model, data_loader, show_auc = False):
     with torch.no_grad():
         print('----- start_test -----')
+        print(str(time.asctime(time.localtime(time.time()))))
         model.eval()
         precision = []
         recall = []
@@ -97,6 +98,7 @@ def test(data_set, model, data_loader, show_auc = False):
 
 
 if __name__ == "__main__":
+    print(str(time.asctime(time.localtime(time.time()))))
     data_set = DataOnlyCF('data_for_test/gowalla/train.txt', 'data_for_test/gowalla/test.txt')
     itra_G = data_set.get_interaction_graph()
     itra_G.ndata['id'] = itra_G.ndata['id'].to(device) # move graph data to target device
@@ -126,6 +128,7 @@ if __name__ == "__main__":
         print('--------------------------------------------------')
     print('==================================================')
     test(data_set, model, test_data_loader)
+    print(str(time.asctime(time.localtime(time.time()))))
 
 # run data_lgcn/gowalla gowalla
 # at epoch 50 precision 0.0406273132632997; recall 0.13624640704870125; ndcg 0.11335605664660738

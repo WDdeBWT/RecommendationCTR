@@ -1,4 +1,5 @@
 import time
+import logging
 
 import dgl
 import tqdm
@@ -10,17 +11,39 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-EPOCH = 200
-LR = 0.005
+CODEVERSION = '0706-1825'
+EPOCH = 500
+DUMMYEPOCH = 400
+LR = 0.001
 EDIM = 64
 LAYERS = 3
 LAM = 1e-4
 TOPK = 20
+M3LAYERS = [-1] # build_struc_graphs mode3_layers (layers of prune graph)
+BMODE = 3 # build_struc_graphs mode (3 for prune)
+CMODE = 0 # combine_multi_layer_embedding mode (1 for concat)
+WFUSE = False # whether use diff weight to fuse(get mean) each step embedding of GCN
+
+# register logging logger
+logger = logging.getLogger()
+logger.setLevel(level=logging.INFO)
+time_line = time.strftime('%Y%m%d_%H:%M', time.localtime(time.time()))
+logfile = time_line + '_snew.log'
+print('logfile', logfile)
+formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%d%b %H:%M')
+logfile_h = logging.FileHandler(logfile, mode='w')
+logfile_h.setLevel(logging.INFO)
+logfile_h.setFormatter(formatter)
+console_h = logging.StreamHandler()
+console_h.setLevel(logging.INFO)
+console_h.setFormatter(formatter)
+logger.addHandler(logfile_h)
+logger.addHandler(console_h)
 
 # GPU / CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train(model, data_loader, optimizer, log_interval=10):
+def train(model, data_loader, optimizer, use_dummy_gcn=False):
     model.train()
     total_loss = 0
     for i, (user_ids, pos_ids, neg_ids) in enumerate(tqdm.tqdm(data_loader)):
@@ -28,20 +51,17 @@ def train(model, data_loader, optimizer, log_interval=10):
         user_ids = user_ids.to(device)
         pos_ids = pos_ids.to(device)
         neg_ids = neg_ids.to(device)
-        loss = model.bpr_loss(user_ids, pos_ids, neg_ids)
-        # print('train loss ' + str(i) + '/' + str(len(data_loader)) + ': ' + str(loss))
+        loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn)
+        # logging.info('train loss ' + str(i) + '/' + str(len(data_loader)) + ': ' + str(loss))
         model.zero_grad()
         loss.backward()
         optimizer.step()
         total_loss += loss.cpu().item()
-        # if (i + 1) % log_interval == 0:
-        #     print('    - Average loss:', total_loss / log_interval)
-        #     total_loss = 0
-    print('train loss:', total_loss / len(data_loader))
+    logging.info('train loss:' + str(total_loss / len(data_loader)))
 
-def evaluate(model, data_loader):
+def evaluate(model, data_loader, use_dummy_gcn=False):
     with torch.no_grad():
-        # print('----- start_evaluate -----')
+        # logging.info('----- start_evaluate -----')
         model.eval()
         total_loss = 0
         # for i, (user_ids, pos_ids, neg_ids) in enumerate(tqdm.tqdm(data_loader)):
@@ -49,15 +69,14 @@ def evaluate(model, data_loader):
             user_ids = user_ids.to(device)
             pos_ids = pos_ids.to(device)
             neg_ids = neg_ids.to(device)
-            loss = model.bpr_loss(user_ids, pos_ids, neg_ids)
+            loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn)
             total_loss += loss.cpu().item()
         avg_loss = total_loss / len(data_loader)
-        print('evaluate loss:' + str(avg_loss))
+        logging.info('evaluate loss:' + str(avg_loss))
 
-def test(data_set, model, data_loader, show_auc = False):
+def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False):
     with torch.no_grad():
-        print('----- start_test -----')
-        print(str(time.asctime(time.localtime(time.time()))))
+        logging.info('----- start_test -----')
         model.eval()
         precision = []
         recall = []
@@ -65,7 +84,7 @@ def test(data_set, model, data_loader, show_auc = False):
         auc_score = []
         for user_ids, _, __ in tqdm.tqdm(data_loader):
             user_ids = user_ids.to(device)
-            ratings = model.get_users_ratings(user_ids)
+            ratings = model.get_users_ratings(user_ids, use_dummy_gcn)
             ground_truths = []
             for i, user_id_t in enumerate(user_ids):
                 user_id = user_id_t.item()
@@ -92,18 +111,19 @@ def test(data_set, model, data_loader, show_auc = False):
         ndcg_score = np.mean(ndcg_score)
         if show_auc: # Calculate AUC scores spends a long time
             auc_score = np.mean(auc_score)
-            print('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score) + '; auc ' + str(auc_score))
+            logging.info('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score) + '; auc ' + str(auc_score))
         else:
-            print('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score))
+            logging.info('test result: precision ' + str(precision) + '; recall ' + str(recall) + '; ndcg ' + str(ndcg_score))
 
 
 if __name__ == "__main__":
-    print(str(time.asctime(time.localtime(time.time()))))
+    print('CODEVERSION: ' + CODEVERSION)
+    logging.info(str(time.asctime(time.localtime(time.time()))))
     data_set = DataOnlyCF('data_for_test/gowalla/train.txt', 'data_for_test/gowalla/test.txt')
     itra_G = data_set.get_interaction_graph()
     itra_G.ndata['id'] = itra_G.ndata['id'].to(device) # move graph data to target device
     itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device) # move graph data to target device
-    struc_Gs = data_set.build_struc_graphs(mode=3)
+    struc_Gs = data_set.build_struc_graphs(mode=BMODE, mode3_layers=M3LAYERS)
     for g in struc_Gs:
         g.ndata['id'] = g.ndata['id'].to(device)
         g.edata['weight'] = g.edata['weight'].to(device)
@@ -111,24 +131,28 @@ if __name__ == "__main__":
             g.ndata['out_sqrt_degree'] = g.ndata['out_sqrt_degree'].to(device)
             g.ndata['in_sqrt_degree'] = g.ndata['in_sqrt_degree'].to(device)
         else:
-            assert False
+            assert False # only use pruned_struc_graph
+    # struc_Gs = None
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
-    model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM).to(device)
+    model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM, weighted_fuse=WFUSE, combine_mode=CMODE).to(device)
     train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=2)
     evaluate_data_loader = DataLoader(data_set.get_evaluate_dataset(), batch_size=4096, num_workers=2)
     test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=2)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
     for epoch_i in range(EPOCH):
-        print('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(EPOCH))
-        train(model, train_data_loader, optimizer)
-        evaluate(model, evaluate_data_loader)
+        if epoch_i < DUMMYEPOCH:
+            use_dummy_gcn = True
+        else:
+            use_dummy_gcn = False
+        logging.info('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(EPOCH))
+        train(model, train_data_loader, optimizer, use_dummy_gcn=use_dummy_gcn)
+        evaluate(model, evaluate_data_loader, use_dummy_gcn=use_dummy_gcn)
         if (epoch_i + 1) % 10 == 0:
-            test(data_set, model, test_data_loader)
-        print('--------------------------------------------------')
-    print('==================================================')
-    test(data_set, model, test_data_loader)
-    print(str(time.asctime(time.localtime(time.time()))))
+            test(data_set, model, test_data_loader, use_dummy_gcn=use_dummy_gcn)
+        logging.info('--------------------------------------------------')
+    logging.info('==================================================')
+    test(data_set, model, test_data_loader, use_dummy_gcn=use_dummy_gcn)
 
 # run data_lgcn/gowalla gowalla
 # at epoch 50 precision 0.0406273132632997; recall 0.13624640704870125; ndcg 0.11335605664660738

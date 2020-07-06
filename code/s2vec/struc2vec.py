@@ -4,9 +4,9 @@ import os
 import time
 import math
 import shutil
-import dgl
 from collections import ChainMap, deque
 
+import dgl
 import torch
 import numpy as np
 import pandas as pd
@@ -120,45 +120,82 @@ class Struc2Vec():
         g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
         return g
 
-    def get_pruned_struc_graph(self):
+    def get_pruned_struc_graph(self, layers=[-1]):
         # build dgl graph of last layer and prune the low weight
         n_nodes = len(self.idx)
-        layer = max(self.layers_adj.keys())
-        g = dgl.DGLGraph()
-        g.add_nodes(n_nodes)
-        edge_list = []
-        edge_weight_list = []
-        neighbors_dict = self.layers_adj[layer]
-        layer_sim_scores = self.layers_sim_scores[layer]
-        for v, neighbors in neighbors_dict.items():
-            max_score = 0.0
-            for n in neighbors:
-                if (v, n) in layer_sim_scores:
-                    sim_score = layer_sim_scores[v, n]
-                else:
-                    sim_score = layer_sim_scores[n, v]
-                max_score = sim_score if sim_score > max_score else max_score
-            mid_score = max_score / 100 # cut the low sim edge
-            if mid_score == 0:
-                continue
-            for n in neighbors:
-                if (v, n) in layer_sim_scores:
-                    sim_score = layer_sim_scores[v, n]
-                else:
-                    sim_score = layer_sim_scores[n, v]
-                if sim_score > mid_score:
-                    edge_list.append((n, v)) # form n to v
-                    edge_weight_list.append(sim_score)
-        edge_list = np.array(edge_list, dtype=int)
-        g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
-        g.readonly()
-        g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-        g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
-        g.ndata['out_sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
-        g.ndata['in_sqrt_degree'] = 1 / torch.sqrt(g.in_degrees().float().unsqueeze(-1))
-        g.ndata['out_sqrt_degree'][torch.isinf(g.ndata['out_sqrt_degree'])] = 0
-        g.ndata['in_sqrt_degree'][torch.isinf(g.ndata['in_sqrt_degree'])] = 0
-        return g
+        struc_graphs = []
+        index_to_layer = list(range(max(self.layers_adj.keys()) + 1))
+        if layers is None:
+            layers = range(len(index_to_layer)) # all layers
+        for index in layers:
+            layer = index_to_layer[index]
+            g = dgl.DGLGraph()
+            g.add_nodes(n_nodes)
+            edge_list = []
+            edge_weight_list = []
+            neighbors_dict = self.layers_adj[layer]
+            layer_sim_scores = self.layers_sim_scores[layer]
+            # times_out = 0 # times
+            for v, neighbors in neighbors_dict.items():
+
+                # max_score = 0.0
+                # for n in neighbors:
+                #     if (v, n) in layer_sim_scores:
+                #         sim_score = layer_sim_scores[v, n]
+                #     else:
+                #         sim_score = layer_sim_scores[n, v]
+                #     max_score = sim_score if sim_score > max_score else max_score
+                # mid_score = max_score / 10 # cut the low sim edge
+
+                sum_score = 0.0
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        sim_score = layer_sim_scores[v, n]
+                    else:
+                        sim_score = layer_sim_scores[n, v]
+                    sum_score += sim_score
+                mid_score = (sum_score / len(neighbors)) / 3
+
+                if mid_score == 0:
+                    continue
+                # mid_score = 0 # not cut
+                # times_sub = 0 # times
+                for n in neighbors:
+                    if (v, n) in layer_sim_scores:
+                        sim_score = layer_sim_scores[v, n]
+                    else:
+                        sim_score = layer_sim_scores[n, v]
+                    if sim_score > mid_score:
+                        edge_list.append((n, v)) # form n to v
+                        edge_weight_list.append(sim_score)
+                    # else: # times
+                        # times_sub += 1 # times
+                # if times_sub > 100: # times
+                    # times_out += 1 # times
+            # print('times_out', times_out) # times
+
+            # print(np.mean(edge_weight_list)) # result: 0.003 for 1% max; x.xxx for 10% max
+            # exit(0)
+            # sim_score = np.exp(0)
+            # sim_score = np.mean(edge_weight_list)
+            # for index in range(n_nodes):
+            #     edge_list.append((index, index))
+            #     edge_weight_list.append(sim_score)
+
+            edge_list = np.array(edge_list, dtype=int)
+            g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
+            g.readonly()
+            g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
+            g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
+            g.ndata['out_sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
+            g.ndata['in_sqrt_degree'] = 1 / torch.sqrt(g.in_degrees().float().unsqueeze(-1))
+
+            g.ndata['out_sqrt_degree'][torch.isinf(g.ndata['out_sqrt_degree'])] = 0
+            g.ndata['in_sqrt_degree'][torch.isinf(g.ndata['in_sqrt_degree'])] = 0
+            assert torch.sum(torch.isinf(g.ndata['out_sqrt_degree'])) == 0
+            assert torch.sum(torch.isinf(g.ndata['in_sqrt_degree'])) == 0
+            struc_graphs.append(g)
+        return struc_graphs
 
     def create_context_graph(self, max_num_layers, workers=1, verbose=0,):
         print(str(time.asctime(time.localtime(time.time()))) + ' create_context_graph')
@@ -319,7 +356,7 @@ class Struc2Vec():
                 vy = v_pair[1]
 
                 layers_sim_scores.setdefault(layer, {})
-                layers_sim_scores[layer][vx, vy] = np.exp(-float(distance))
+                layers_sim_scores[layer][vx, vy] = np.exp(-float(distance) / 1)
 
                 layers_adj.setdefault(layer, {})
                 layers_adj[layer].setdefault(vx, [])

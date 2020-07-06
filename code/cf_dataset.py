@@ -128,7 +128,7 @@ class DataOnlyCF(torch.utils.data.Dataset):
         g.ndata['sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
         return g
 
-    def build_struc_graphs(self, mode=0):
+    def build_struc_graphs(self, mode=0, mode3_layers=[-1]):
         nx_rec_g = nx.Graph()
         nx_rec_g.add_nodes_from(range(self.n_users + self.n_items))
         edges = np.concatenate((self.train_data[0].reshape(-1, 1), self.train_data[1].reshape(-1, 1) + self.n_users), 1)
@@ -141,7 +141,7 @@ class DataOnlyCF(torch.utils.data.Dataset):
         elif mode == 2: # last
             g_list = s2v.get_struc_graphs()[-1:]
         elif mode == 3: # prune
-            g_list = [s2v.get_pruned_struc_graph()]
+            g_list = s2v.get_pruned_struc_graph(mode3_layers)
         return g_list
 
     # def __len__(self): # first version

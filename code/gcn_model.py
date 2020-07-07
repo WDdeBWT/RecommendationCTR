@@ -101,6 +101,14 @@ class CFGCN(nn.Module):
         #     aggregator_layers.append(Aggregator(conv_dim_list[k], conv_dim_list[k + 1], 'gcn'))
         # self.aggregate_layers_struc = aggregator_layers
 
+    def load_pretrained_embedding(self, pretrained_data):
+        assert pretrained_data.shape[0] == self.n_users + self.n_items
+        assert pretrained_data.shape[1] == self.embed_dim
+        self.embedding_user_item_itra.weight.data = pretrained_data
+
+    def get_pretrained_embedding(self):
+        return self.embedding_user_item_itra.weight.data
+
     def bpr_loss(self, users, pos, neg, use_dummy_gcn=False):
         if use_dummy_gcn:
             propagate_func = self.dummy_propagate_embedding

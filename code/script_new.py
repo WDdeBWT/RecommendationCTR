@@ -11,9 +11,11 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-CODEVERSION = '0706-1825'
-EPOCH = 500
-DUMMYEPOCH = 400
+CODE_VERSION = '0707-1412'
+USE_PRETRAIN = False
+PRETRAIN_VERSION = '0707-1412'
+PRETRAIN_EPOCH = 500
+GCN_EPOCH = 100
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -117,12 +119,14 @@ def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False):
 
 
 if __name__ == "__main__":
-    print('CODEVERSION: ' + CODEVERSION)
+    print('CODE_VERSION: ' + CODE_VERSION)
     logging.info(str(time.asctime(time.localtime(time.time()))))
     data_set = DataOnlyCF('data_for_test/gowalla/train.txt', 'data_for_test/gowalla/test.txt')
     itra_G = data_set.get_interaction_graph()
-    itra_G.ndata['id'] = itra_G.ndata['id'].to(device) # move graph data to target device
-    itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device) # move graph data to target device
+
+    # move graph data to target device
+    itra_G.ndata['id'] = itra_G.ndata['id'].to(device)
+    itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device)
     struc_Gs = data_set.build_struc_graphs(mode=BMODE, mode3_layers=M3LAYERS)
     for g in struc_Gs:
         g.ndata['id'] = g.ndata['id'].to(device)
@@ -133,6 +137,7 @@ if __name__ == "__main__":
         else:
             assert False # only use pruned_struc_graph
     # struc_Gs = None
+
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
     model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM, weighted_fuse=WFUSE, combine_mode=CMODE).to(device)
@@ -140,19 +145,36 @@ if __name__ == "__main__":
     evaluate_data_loader = DataLoader(data_set.get_evaluate_dataset(), batch_size=4096, num_workers=2)
     test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=2)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
-    for epoch_i in range(EPOCH):
-        if epoch_i < DUMMYEPOCH:
-            use_dummy_gcn = True
-        else:
-            use_dummy_gcn = False
-        logging.info('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(EPOCH))
-        train(model, train_data_loader, optimizer, use_dummy_gcn=use_dummy_gcn)
-        evaluate(model, evaluate_data_loader, use_dummy_gcn=use_dummy_gcn)
+
+    # pretrain mf model
+    if USE_PRETRAIN:
+        logging.info('load pretrain model, pretrain_version: ' + PRETRAIN_VERSION)
+        pretrained_data, saved_args = torch.load(PRETRAIN_VERSION + '.pth')
+        assert (PRETRAIN_EPOCH, EDIM, CMODE) == saved_args, 'saved_args not match' + str(saved_args)
+        model.load_pretrained_embedding(pretrained_data)
+    else:
+        for epoch_i in range(PRETRAIN_EPOCH):
+            logging.info('Pretrain mf - epoch ' + str(epoch_i + 1) + '/' + str(PRETRAIN_EPOCH))
+            train(model, train_data_loader, optimizer, use_dummy_gcn=True)
+            evaluate(model, evaluate_data_loader, use_dummy_gcn=True)
+            if (epoch_i + 1) % 10 == 0:
+                test(data_set, model, test_data_loader, use_dummy_gcn=True)
+            logging.info('--------------------------------------------------')
+        dump_obj = (model.get_pretrained_embedding(), (PRETRAIN_EPOCH, EDIM, CMODE))
+        torch.save(dump_obj, CODE_VERSION + '.pth')
+        logging.info('==================================================')
+
+    # train gcn
+    test(data_set, model, test_data_loader, use_dummy_gcn=False)
+    for epoch_i in range(GCN_EPOCH):
+        logging.info('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(GCN_EPOCH))
+        train(model, train_data_loader, optimizer, use_dummy_gcn=False)
+        evaluate(model, evaluate_data_loader, use_dummy_gcn=False)
         if (epoch_i + 1) % 10 == 0:
-            test(data_set, model, test_data_loader, use_dummy_gcn=use_dummy_gcn)
+            test(data_set, model, test_data_loader, use_dummy_gcn=False)
         logging.info('--------------------------------------------------')
     logging.info('==================================================')
-    test(data_set, model, test_data_loader, use_dummy_gcn=use_dummy_gcn)
+    test(data_set, model, test_data_loader, use_dummy_gcn=False)
 
 # run data_lgcn/gowalla gowalla
 # at epoch 50 precision 0.0406273132632997; recall 0.13624640704870125; ndcg 0.11335605664660738

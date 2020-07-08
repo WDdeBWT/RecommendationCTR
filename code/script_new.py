@@ -1,4 +1,5 @@
 import time
+import pickle
 import logging
 
 import dgl
@@ -11,11 +12,11 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-CODE_VERSION = '0707-1412'
-USE_PRETRAIN = False
-PRETRAIN_VERSION = '0707-1412'
+CODE_VERSION = '0708-1059'
+USE_PRETRAIN = True
+PRETRAIN_VERSION = 'LightGCN_Pretrain'
 PRETRAIN_EPOCH = 500
-GCN_EPOCH = 100
+GCN_EPOCH = 10
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -165,7 +166,9 @@ if __name__ == "__main__":
         logging.info('==================================================')
 
     # train gcn
+    test(data_set, model, test_data_loader, use_dummy_gcn=True)
     test(data_set, model, test_data_loader, use_dummy_gcn=False)
+    logging.info('==================================================')
     for epoch_i in range(GCN_EPOCH):
         logging.info('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(GCN_EPOCH))
         train(model, train_data_loader, optimizer, use_dummy_gcn=False)

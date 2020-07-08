@@ -114,16 +114,15 @@ class CFGCN(nn.Module):
             propagate_func = self.dummy_propagate_embedding
         else:
             propagate_func = self.propagate_embedding
-        # users_emb_itra_ego = self.embedding_user_item_itra(users.long())
-        # pos_emb_itra_ego   = self.embedding_user_item_itra(pos.long() + self.n_users)
-        # neg_emb_itra_ego   = self.embedding_user_item_itra(neg.long() + self.n_users)
-        # reg_loss = users_emb_itra_ego.norm(2).pow(2) + pos_emb_itra_ego.norm(2).pow(2) + neg_emb_itra_ego.norm(2).pow(2)
-        reg_loss = 0
+        users_emb_itra_ego = self.embedding_user_item_itra(users.long())
+        pos_emb_itra_ego   = self.embedding_user_item_itra(pos.long() + self.n_users)
+        neg_emb_itra_ego   = self.embedding_user_item_itra(neg.long() + self.n_users)
+        reg_loss = users_emb_itra_ego.norm(2).pow(2) + pos_emb_itra_ego.norm(2).pow(2) + neg_emb_itra_ego.norm(2).pow(2)
 
-        # propagated_embed_itra = propagate_func(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra)
-        # users_emb_itra = propagated_embed_itra[users.long()]
-        # pos_emb_itra   = propagated_embed_itra[pos.long() + self.n_users]
-        # neg_emb_itra   = propagated_embed_itra[neg.long() + self.n_users]
+        propagated_embed_itra = propagate_func(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra)
+        users_emb_itra = propagated_embed_itra[users.long()]
+        pos_emb_itra   = propagated_embed_itra[pos.long() + self.n_users]
+        neg_emb_itra   = propagated_embed_itra[neg.long() + self.n_users]
 
         if self.struc_Gs is not None:
             users_emb_struc_ego = self.embedding_user_item_struc(users.long())
@@ -131,12 +130,9 @@ class CFGCN(nn.Module):
             neg_emb_struc_ego   = self.embedding_user_item_struc(neg.long() + self.n_users)
             reg_loss += (users_emb_struc_ego.norm(2).pow(2) + pos_emb_struc_ego.norm(2).pow(2) + neg_emb_struc_ego.norm(2).pow(2))
 
-            # users_embs = [users_emb_itra]
-            # pos_embs = [pos_emb_itra]
-            # neg_embs = [neg_emb_itra]
-            users_embs = []
-            pos_embs = []
-            neg_embs = []
+            users_embs = [users_emb_itra]
+            pos_embs = [pos_emb_itra]
+            neg_embs = [neg_emb_itra]
             for g in self.struc_Gs:
                 propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
                 users_emb_struc = propagated_embed_struc[users.long()]
@@ -164,15 +160,13 @@ class CFGCN(nn.Module):
             propagate_func = self.dummy_propagate_embedding
         else:
             propagate_func = self.propagate_embedding
-        # propagated_embed_itra = propagate_func(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra_p)
-        # users_emb_itra = propagated_embed_itra[users.long()]
-        # items_emb_itra = propagated_embed_itra[self.n_users:]
+        propagated_embed_itra = propagate_func(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra_p)
+        users_emb_itra = propagated_embed_itra[users.long()]
+        items_emb_itra = propagated_embed_itra[self.n_users:]
 
         if self.struc_Gs is not None:
-            # users_embs = [users_emb_itra]
-            # items_embs = [items_emb_itra]
-            users_embs = []
-            items_embs = []
+            users_embs = [users_emb_itra]
+            items_embs = [items_emb_itra]
             for g in self.struc_Gs:
                 propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
                 users_emb_struc = propagated_embed_struc[users.long()]

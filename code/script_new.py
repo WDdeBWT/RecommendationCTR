@@ -12,11 +12,14 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-CODE_VERSION = '0708-1059'
+CODE_VERSION = '0709-1350'
 USE_PRETRAIN = True
+# PRETRAIN_VERSION = 'lr0005_1e4_500epoch'
 PRETRAIN_VERSION = 'LightGCN_Pretrain'
 PRETRAIN_EPOCH = 500
-GCN_EPOCH = 10
+GCN_EPOCH = 2
+STRUC_STEP = 30
+ITRA_STEP = 30
 LR = 0.001
 EDIM = 64
 LAYERS = 3
@@ -46,7 +49,7 @@ logger.addHandler(console_h)
 # GPU / CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train(model, data_loader, optimizer, use_dummy_gcn=False):
+def train(model, data_loader, optimizer, use_dummy_gcn=False, use_struc=None):
     model.train()
     total_loss = 0
     for i, (user_ids, pos_ids, neg_ids) in enumerate(tqdm.tqdm(data_loader)):
@@ -54,7 +57,7 @@ def train(model, data_loader, optimizer, use_dummy_gcn=False):
         user_ids = user_ids.to(device)
         pos_ids = pos_ids.to(device)
         neg_ids = neg_ids.to(device)
-        loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn)
+        loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn, use_struc)
         # logging.info('train loss ' + str(i) + '/' + str(len(data_loader)) + ': ' + str(loss))
         model.zero_grad()
         loss.backward()
@@ -62,7 +65,7 @@ def train(model, data_loader, optimizer, use_dummy_gcn=False):
         total_loss += loss.cpu().item()
     logging.info('train loss:' + str(total_loss / len(data_loader)))
 
-def evaluate(model, data_loader, use_dummy_gcn=False):
+def evaluate(model, data_loader, use_dummy_gcn=False, use_struc=None):
     with torch.no_grad():
         # logging.info('----- start_evaluate -----')
         model.eval()
@@ -72,12 +75,12 @@ def evaluate(model, data_loader, use_dummy_gcn=False):
             user_ids = user_ids.to(device)
             pos_ids = pos_ids.to(device)
             neg_ids = neg_ids.to(device)
-            loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn)
+            loss = model.bpr_loss(user_ids, pos_ids, neg_ids, use_dummy_gcn, use_struc)
             total_loss += loss.cpu().item()
         avg_loss = total_loss / len(data_loader)
         logging.info('evaluate loss:' + str(avg_loss))
 
-def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False):
+def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False, use_struc=None):
     with torch.no_grad():
         logging.info('----- start_test -----')
         model.eval()
@@ -87,7 +90,7 @@ def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False):
         auc_score = []
         for user_ids, _, __ in tqdm.tqdm(data_loader):
             user_ids = user_ids.to(device)
-            ratings = model.get_users_ratings(user_ids, use_dummy_gcn)
+            ratings = model.get_users_ratings(user_ids, use_dummy_gcn, use_struc)
             ground_truths = []
             for i, user_id_t in enumerate(user_ids):
                 user_id = user_id_t.item()
@@ -166,18 +169,31 @@ if __name__ == "__main__":
         logging.info('==================================================')
 
     # train gcn
-    test(data_set, model, test_data_loader, use_dummy_gcn=True)
+    # test(data_set, model, test_data_loader, use_dummy_gcn=True)
     test(data_set, model, test_data_loader, use_dummy_gcn=False)
     logging.info('==================================================')
-    for epoch_i in range(GCN_EPOCH):
-        logging.info('Train lgcn - epoch ' + str(epoch_i + 1) + '/' + str(GCN_EPOCH))
-        train(model, train_data_loader, optimizer, use_dummy_gcn=False)
-        evaluate(model, evaluate_data_loader, use_dummy_gcn=False)
-        if (epoch_i + 1) % 10 == 0:
-            test(data_set, model, test_data_loader, use_dummy_gcn=False)
-        logging.info('--------------------------------------------------')
+    for i in range(GCN_EPOCH):
+
+        for epoch_i in range(STRUC_STEP):
+            logging.info('----- use_struc=True')
+            logging.info('Train lgcn - epoch ' + str(i * (STRUC_STEP + ITRA_STEP) + epoch_i + 1) + '/' + str(GCN_EPOCH * (STRUC_STEP + ITRA_STEP)))
+            train(model, train_data_loader, optimizer, use_dummy_gcn=False, use_struc=True)
+            evaluate(model, evaluate_data_loader, use_dummy_gcn=False, use_struc=True)
+            if (epoch_i + 1) % 10 == 0:
+                test(data_set, model, test_data_loader, use_dummy_gcn=False, use_struc=True)
+            logging.info('--------------------------------------------------')
+
+        for epoch_i in range(ITRA_STEP):
+            logging.info('----- use_struc=False')
+            logging.info('Train lgcn - epoch ' + str(i * (STRUC_STEP + ITRA_STEP) + STRUC_STEP + epoch_i + 1) + '/' + str(GCN_EPOCH * (STRUC_STEP + ITRA_STEP)))
+            train(model, train_data_loader, optimizer, use_dummy_gcn=False, use_struc=False)
+            evaluate(model, evaluate_data_loader, use_dummy_gcn=False, use_struc=False)
+            if (epoch_i + 1) % 10 == 0:
+                test(data_set, model, test_data_loader, use_dummy_gcn=False, use_struc=False)
+            logging.info('--------------------------------------------------')
+
     logging.info('==================================================')
-    test(data_set, model, test_data_loader, use_dummy_gcn=False)
+    test(data_set, model, test_data_loader, use_dummy_gcn=False, use_struc=False)
 
 # run data_lgcn/gowalla gowalla
 # at epoch 50 precision 0.0406273132632997; recall 0.13624640704870125; ndcg 0.11335605664660738

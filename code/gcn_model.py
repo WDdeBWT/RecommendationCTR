@@ -24,22 +24,28 @@ class Aggregator(nn.Module):
             self.W1 = nn.Linear(in_dim, out_dim)      # W1 in Equation (8)
             self.W2 = nn.Linear(in_dim, out_dim)      # W2 in Equation (8)
         else:
-            raise NotImplementedError
+            pass
 
         self.activation = nn.LeakyReLU()
 
 
     def forward(self, g, entity_embed):
-        g = g.local_var()
-        g.ndata['node'] = entity_embed * g.ndata['out_sqrt_degree']
-        g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
-        # g.update_all(lambda edges: {'side' : edges.src['node'] * edges.data['weight']},
-        #              lambda nodes: {'N_h': torch.sum(nodes.mailbox['side'], 1)})
-        g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['in_sqrt_degree']
+        if 'weight' in g.edata:
+            g = g.local_var()
+            g.ndata['node'] = entity_embed * g.ndata['out_sqrt_degree']
+            g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
+            g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['in_sqrt_degree']
+            g.ndata['N_h'] = g.ndata['N_h'] * torch.rand_like(g.ndata['N_h']) * 2 # noise test
+        else:
+            g = g.local_var()
+            g.ndata['node'] = entity_embed * g.ndata['sqrt_degree']
+            g.update_all(dgl.function.copy_src(src='node', out='side'), dgl.function.sum(msg='side', out='N_h'))
+            g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['sqrt_degree']
 
         if self.aggregator_type == 'gcn':
             # Equation (6) & (9)
-            out = self.activation(self.W(entity_embed + g.ndata['N_h']))                         # (n_users + n_entities, out_dim)
+            # out = self.activation(self.W(entity_embed + g.ndata['N_h']))                         # (n_users + n_entities, out_dim)
+            out = self.activation(self.W(g.ndata['N_h']))                                          # have a try
 
         elif self.aggregator_type == 'graphsage':
             # Equation (7) & (9)
@@ -51,7 +57,7 @@ class Aggregator(nn.Module):
             out2 = self.activation(self.W2(entity_embed * g.ndata['N_h']))                       # (n_users + n_entities, out_dim)
             out = out1 + out2
         else:
-            raise NotImplementedError
+            out = g.ndata['N_h']
 
         return out
 
@@ -79,6 +85,7 @@ class CFGCN(nn.Module):
         self.aggregate_layers_itra_p = []
         for k in range(self.n_layers):
             self.aggregate_layers_itra_p.append(AggregateUnweighted_p)
+        # self.aggregate_layers_itra_p = self.aggregate_layers_itra
 
         if self.struc_Gs is not None:
             self.embedding_user_item_struc = self.embedding_user_item_itra
@@ -94,12 +101,14 @@ class CFGCN(nn.Module):
             self.layers_weight = nn.ParameterList([nn.Parameter(torch.zeros(1) + 0.1) for i in range(n_layers + 1)])
             nn.init.constant_(self.layers_weight[0], 1)
 
-        # # Test
-        # conv_dim_list = [32, 32, 32, 32]
-        # aggregator_layers = nn.ModuleList()
-        # for k in range(self.n_layers):
-        #     aggregator_layers.append(Aggregator(conv_dim_list[k], conv_dim_list[k + 1], 'gcn'))
-        # self.aggregate_layers_struc = aggregator_layers
+        # Try to use GCN with parameter
+        conv_dim_list = [64, 64, 64, 64]
+        aggregator_layers = nn.ModuleList()
+        for k in range(self.n_layers):
+            aggregator_layers.append(Aggregator(conv_dim_list[k], conv_dim_list[k + 1], 'gcn'))
+        self.aggregate_layers_struc = aggregator_layers
+        # self.aggregate_layers_itra = aggregator_layers
+        # self.aggregate_layers_itra_p = aggregator_layers
 
     def load_pretrained_embedding(self, pretrained_data):
         assert pretrained_data.shape[0] == self.n_users + self.n_items
@@ -109,11 +118,14 @@ class CFGCN(nn.Module):
     def get_pretrained_embedding(self):
         return self.embedding_user_item_itra.weight.data
 
-    def bpr_loss(self, users, pos, neg, use_dummy_gcn=False):
+    def bpr_loss(self, users, pos, neg, use_dummy_gcn=False, use_struc=None):
         if use_dummy_gcn:
             propagate_func = self.dummy_propagate_embedding
         else:
             propagate_func = self.propagate_embedding
+        if use_struc is None:
+            use_struc = self.struc_Gs is not None
+
         users_emb_itra_ego = self.embedding_user_item_itra(users.long())
         pos_emb_itra_ego   = self.embedding_user_item_itra(pos.long() + self.n_users)
         neg_emb_itra_ego   = self.embedding_user_item_itra(neg.long() + self.n_users)
@@ -124,15 +136,23 @@ class CFGCN(nn.Module):
         pos_emb_itra   = propagated_embed_itra[pos.long() + self.n_users]
         neg_emb_itra   = propagated_embed_itra[neg.long() + self.n_users]
 
-        if self.struc_Gs is not None:
+        if use_struc:
+            assert self.struc_Gs is not None
             users_emb_struc_ego = self.embedding_user_item_struc(users.long())
             pos_emb_struc_ego   = self.embedding_user_item_struc(pos.long() + self.n_users)
             neg_emb_struc_ego   = self.embedding_user_item_struc(neg.long() + self.n_users)
             reg_loss += (users_emb_struc_ego.norm(2).pow(2) + pos_emb_struc_ego.norm(2).pow(2) + neg_emb_struc_ego.norm(2).pow(2))
+            # reg_loss = (users_emb_struc_ego.norm(2).pow(2) + pos_emb_struc_ego.norm(2).pow(2) + neg_emb_struc_ego.norm(2).pow(2)) # pure
 
             users_embs = [users_emb_itra]
             pos_embs = [pos_emb_itra]
             neg_embs = [neg_emb_itra]
+            # users_embs = [] # pure
+            # pos_embs = [] # pure
+            # neg_embs = [] # pure
+            # temp_users_embs = [] # temp
+            # temp_pos_embs = [] # temp
+            # temp_neg_embs = [] # temp
             for g in self.struc_Gs:
                 propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
                 users_emb_struc = propagated_embed_struc[users.long()]
@@ -141,6 +161,13 @@ class CFGCN(nn.Module):
                 users_embs.append(users_emb_struc)
                 pos_embs.append(pos_emb_struc)
                 neg_embs.append(neg_emb_struc)
+                # temp_users_embs.append(users_emb_struc) # temp
+                # temp_pos_embs.append(pos_emb_struc) # temp
+                # temp_neg_embs.append(neg_emb_struc) # temp
+            # users_embs.append(combine_multi_layer_embedding(temp_users_embs, mode=self.combine_mode)) # temp
+            # pos_embs.append(combine_multi_layer_embedding(temp_pos_embs, mode=self.combine_mode)) # temp
+            # neg_embs.append(combine_multi_layer_embedding(temp_neg_embs, mode=self.combine_mode)) # temp
+
             users_emb = combine_multi_layer_embedding(users_embs, mode=self.combine_mode)
             pos_emb = combine_multi_layer_embedding(pos_embs, mode=self.combine_mode)
             neg_emb = combine_multi_layer_embedding(neg_embs, mode=self.combine_mode)
@@ -155,24 +182,37 @@ class CFGCN(nn.Module):
         reg_loss = (1/2) * reg_loss / float(len(users))
         return loss + self.lam * reg_loss
 
-    def get_users_ratings(self, users, use_dummy_gcn=False):
+    def get_users_ratings(self, users, use_dummy_gcn=False, use_struc=None):
         if use_dummy_gcn:
             propagate_func = self.dummy_propagate_embedding
         else:
             propagate_func = self.propagate_embedding
+        if use_struc is None:
+            use_struc = self.struc_Gs is not None
+
         propagated_embed_itra = propagate_func(self.itra_G, self.embedding_user_item_itra, self.aggregate_layers_itra_p)
         users_emb_itra = propagated_embed_itra[users.long()]
         items_emb_itra = propagated_embed_itra[self.n_users:]
 
-        if self.struc_Gs is not None:
+        if use_struc:
+            assert self.struc_Gs is not None
             users_embs = [users_emb_itra]
             items_embs = [items_emb_itra]
+            # users_embs = [] # pure
+            # items_embs = [] # pure
+            # temp_users_embs = [] # temp
+            # temp_items_embs = [] # temp
             for g in self.struc_Gs:
                 propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
                 users_emb_struc = propagated_embed_struc[users.long()]
                 items_emb_struc = propagated_embed_struc[self.n_users:]
                 users_embs.append(users_emb_struc)
                 items_embs.append(items_emb_struc)
+                # temp_users_embs.append(users_emb_struc) # temp
+                # temp_items_embs.append(items_emb_struc) # temp
+            # users_embs.append(combine_multi_layer_embedding(temp_users_embs, mode=self.combine_mode)) # temp
+            # items_embs.append(combine_multi_layer_embedding(temp_items_embs, mode=self.combine_mode)) # temp
+
             users_emb = combine_multi_layer_embedding(users_embs, mode=self.combine_mode)
             items_emb = combine_multi_layer_embedding(items_embs, mode=self.combine_mode)
         else:

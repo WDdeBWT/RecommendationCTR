@@ -3,6 +3,7 @@ test.py
 test_dgl.py
 *.sh
 *.pth
+.vscode/
 
 data/
 data_lgcn/

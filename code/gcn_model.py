@@ -28,14 +28,29 @@ class Aggregator(nn.Module):
 
         self.activation = nn.LeakyReLU()
 
-
-    def forward(self, g, entity_embed):
+    def forward(self, g, entity_embed, use_noise=False, show_detail=False):
+        # print()
         if 'weight' in g.edata:
+            # ma = torch.max(entity_embed).cpu().item()
+            # me = torch.mean(entity_embed).cpu().item()
+            # v = torch.var(entity_embed).cpu().item()
+            # print(f'E_e max: {ma}, mean: {me}, var: {v}')
+
             g = g.local_var()
+
             g.ndata['node'] = entity_embed * g.ndata['out_sqrt_degree']
             g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
             g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['in_sqrt_degree']
-            g.ndata['N_h'] = g.ndata['N_h'] * torch.rand_like(g.ndata['N_h']) * 2 # noise test
+
+            # g.ndata['node'] = entity_embed
+            # g.update_all(dgl.function.u_mul_e('node', 'weight', 'side'), dgl.function.sum(msg='side', out='N_h'))
+            # g.ndata['N_h'] = g.ndata['N_h'] * g.ndata['in_sqrt_degree'] * g.ndata['in_sqrt_degree']
+
+            if use_noise:
+                # use randn noise with same mean & var
+                g.ndata['N_h'] = torch.randn_like(g.ndata['N_h']) * torch.sqrt(g.ndata['N_h'].var()) + g.ndata['N_h'].mean()
+            if show_detail:
+                print('g.ndata[N_h], mean & abs mean & var:', g.ndata['N_h'].mean().cpu(), g.ndata['N_h'].abs().mean().cpu(), g.ndata['N_h'].var().cpu())
         else:
             g = g.local_var()
             g.ndata['node'] = entity_embed * g.ndata['sqrt_degree']
@@ -44,8 +59,8 @@ class Aggregator(nn.Module):
 
         if self.aggregator_type == 'gcn':
             # Equation (6) & (9)
-            # out = self.activation(self.W(entity_embed + g.ndata['N_h']))                         # (n_users + n_entities, out_dim)
-            out = self.activation(self.W(g.ndata['N_h']))                                          # have a try
+            out = self.activation(self.W(entity_embed + g.ndata['N_h']))                         # (n_users + n_entities, out_dim)
+            # out = self.activation(self.W(g.ndata['N_h']))                                        # have a try
 
         elif self.aggregator_type == 'graphsage':
             # Equation (7) & (9)
@@ -59,12 +74,17 @@ class Aggregator(nn.Module):
         else:
             out = g.ndata['N_h']
 
+        # ma = torch.max(out).cpu().item()
+        # me = torch.mean(out).cpu().item()
+        # v = torch.var(out).cpu().item()
+        # print(f'out max: {ma}, mean: {me}, var: {v}')
+
         return out
 
 
 class CFGCN(nn.Module):
 
-    def __init__(self, n_users, n_items, itra_G, struc_Gs=None, embed_dim=64, n_layers=3, lam=0.001, weighted_fuse=False, combine_mode=0):
+    def __init__(self, n_users, n_items, itra_G, struc_Gs=None, embed_dim=64, n_layers=3, lam=0.001, weighted_fuse=False, combine_mode=0, aggregator_type='gcn'):
         super(CFGCN, self).__init__()
 
         self.n_users = n_users
@@ -79,6 +99,7 @@ class CFGCN(nn.Module):
 
         self.embedding_user_item_itra = torch.nn.Embedding(num_embeddings=self.n_users + self.n_items, embedding_dim=self.embed_dim)
         nn.init.xavier_uniform_(self.embedding_user_item_itra.weight, gain=1)
+        # nn.init.normal_(self.embedding_user_item_itra.weight, std=0.1)
         self.aggregate_layers_itra = []
         for k in range(self.n_layers):
             self.aggregate_layers_itra.append(AggregateUnweighted)
@@ -95,17 +116,22 @@ class CFGCN(nn.Module):
             for k in range(self.n_layers):
                 self.aggregate_layers_struc.append(AggregateWeighted)
 
+            # self.norm_weight = nn.Parameter(torch.ones(1))
+            # self.norm_bias = nn.Parameter(torch.zeros(1))
+            self.norm_weight_list = nn.ParameterList([nn.Parameter(torch.ones(1)) for i in range(len(struc_Gs))])
+            self.norm_bias_list = nn.ParameterList([nn.Parameter(torch.zeros(1)) for i in range(len(struc_Gs))])
+
         if not weighted_fuse:
             self.layers_weight = None
         else:
-            self.layers_weight = nn.ParameterList([nn.Parameter(torch.zeros(1) + 0.1) for i in range(n_layers + 1)])
+            self.layers_weight = nn.ParameterList([nn.Parameter(torch.zeros(1) + 0.3) for i in range(n_layers + 1)])
             nn.init.constant_(self.layers_weight[0], 1)
 
         # Try to use GCN with parameter
         conv_dim_list = [64, 64, 64, 64]
         aggregator_layers = nn.ModuleList()
         for k in range(self.n_layers):
-            aggregator_layers.append(Aggregator(conv_dim_list[k], conv_dim_list[k + 1], 'gcn'))
+            aggregator_layers.append(Aggregator(conv_dim_list[k], conv_dim_list[k + 1], aggregator_type))
         self.aggregate_layers_struc = aggregator_layers
         # self.aggregate_layers_itra = aggregator_layers
         # self.aggregate_layers_itra_p = aggregator_layers
@@ -150,27 +176,20 @@ class CFGCN(nn.Module):
             # users_embs = [] # pure
             # pos_embs = [] # pure
             # neg_embs = [] # pure
-            # temp_users_embs = [] # temp
-            # temp_pos_embs = [] # temp
-            # temp_neg_embs = [] # temp
-            for g in self.struc_Gs:
-                propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
+            for index, g_in in enumerate(self.struc_Gs):
+                g = g_in.local_var()
+                g.edata['weight'] = g.edata['weight'] * self.norm_weight_list[index] + self.norm_bias_list[index]
+                propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc, use_noise=False)
                 users_emb_struc = propagated_embed_struc[users.long()]
                 pos_emb_struc   = propagated_embed_struc[pos.long() + self.n_users]
                 neg_emb_struc   = propagated_embed_struc[neg.long() + self.n_users]
                 users_embs.append(users_emb_struc)
                 pos_embs.append(pos_emb_struc)
                 neg_embs.append(neg_emb_struc)
-                # temp_users_embs.append(users_emb_struc) # temp
-                # temp_pos_embs.append(pos_emb_struc) # temp
-                # temp_neg_embs.append(neg_emb_struc) # temp
-            # users_embs.append(combine_multi_layer_embedding(temp_users_embs, mode=self.combine_mode)) # temp
-            # pos_embs.append(combine_multi_layer_embedding(temp_pos_embs, mode=self.combine_mode)) # temp
-            # neg_embs.append(combine_multi_layer_embedding(temp_neg_embs, mode=self.combine_mode)) # temp
 
-            users_emb = combine_multi_layer_embedding(users_embs, mode=self.combine_mode)
-            pos_emb = combine_multi_layer_embedding(pos_embs, mode=self.combine_mode)
-            neg_emb = combine_multi_layer_embedding(neg_embs, mode=self.combine_mode)
+            users_emb = combine_multi_graph_embedding(users_embs, mode=self.combine_mode)
+            pos_emb = combine_multi_graph_embedding(pos_embs, mode=self.combine_mode)
+            neg_emb = combine_multi_graph_embedding(neg_embs, mode=self.combine_mode)
         else:
             users_emb = users_emb_itra
             pos_emb = pos_emb_itra
@@ -200,21 +219,22 @@ class CFGCN(nn.Module):
             items_embs = [items_emb_itra]
             # users_embs = [] # pure
             # items_embs = [] # pure
-            # temp_users_embs = [] # temp
-            # temp_items_embs = [] # temp
-            for g in self.struc_Gs:
-                propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc)
+            print()
+            for index, g_in in enumerate(self.struc_Gs):
+                g = g_in.local_var()
+                g.edata['weight'] = g.edata['weight'] * self.norm_weight_list[index] + self.norm_bias_list[index]
+                print('g.edata[weight] mean & var', g.edata['weight'].mean().cpu(), g.edata['weight'].var().cpu())
+                if self.layers_weight is not None:
+                    print('self.layers_weight', [w.data.cpu() for w in self.layers_weight])
+                # print('embed ego mean & abs mean & var:', self.embedding_user_item_struc.weight.mean().cpu(), self.embedding_user_item_struc.weight.abs().mean().cpu(), self.embedding_user_item_struc.weight.var().cpu())
+                propagated_embed_struc = propagate_func(g, self.embedding_user_item_struc, self.aggregate_layers_struc, use_noise=False, show_detail=False)
                 users_emb_struc = propagated_embed_struc[users.long()]
                 items_emb_struc = propagated_embed_struc[self.n_users:]
                 users_embs.append(users_emb_struc)
                 items_embs.append(items_emb_struc)
-                # temp_users_embs.append(users_emb_struc) # temp
-                # temp_items_embs.append(items_emb_struc) # temp
-            # users_embs.append(combine_multi_layer_embedding(temp_users_embs, mode=self.combine_mode)) # temp
-            # items_embs.append(combine_multi_layer_embedding(temp_items_embs, mode=self.combine_mode)) # temp
 
-            users_emb = combine_multi_layer_embedding(users_embs, mode=self.combine_mode)
-            items_emb = combine_multi_layer_embedding(items_embs, mode=self.combine_mode)
+            users_emb = combine_multi_graph_embedding(users_embs, mode=self.combine_mode)
+            items_emb = combine_multi_graph_embedding(items_embs, mode=self.combine_mode)
         else:
             users_emb = users_emb_itra
             items_emb = items_emb_itra
@@ -223,19 +243,38 @@ class CFGCN(nn.Module):
         return ratings # shape: (test_batch_size, n_items)
 
 
-    def dummy_propagate_embedding(self, g_in, ebd_in, agg_layers_in=None):
+    def dummy_propagate_embedding(self, g_in, ebd_in, agg_layers_in=None, use_noise=False):
         ego_embed = ebd_in(g_in.ndata['id'])
         return ego_embed
 
 
-    def propagate_embedding(self, g_in, ebd_in, agg_layers_in):
-        g = g_in.local_var()
+    def propagate_embedding(self, g_in, ebd_in, agg_layers_in, use_noise=False, show_detail=False):
+        g = g_in.local_var() # try to not use local_var()
         ego_embed = ebd_in(g.ndata['id'])
         all_embed = [ego_embed]
 
+        # print()
+        # ma = torch.max(g.edata['weight']).cpu().item()
+        # mi = torch.min(g.edata['weight']).cpu().item()
+        # me = torch.mean(g.edata['weight']).cpu().item()
+        # v = torch.var(g.edata['weight']).cpu().item()
+        # print(f'weight max: {ma}, min: {mi}, mean: {me}, var: {v}, edge_nums: {g.number_of_edges()}')
+
+        # ma = torch.max(g.out_degrees().float()).cpu().item()
+        # mi = torch.min(g.out_degrees().float()).cpu().item()
+        # me = torch.mean(g.out_degrees().float()).cpu().item()
+        # v = torch.var(g.out_degrees().float()).cpu().item()
+        # print(f'out_degrees max: {ma}, min: {mi}, mean: {me}, var: {v}')
+        # print(g.out_degrees().shape, torch.sum(g.out_degrees() == 0))
+
+        # import matplotlib.pyplot as plt
+        # # plt.hist(x = g.out_degrees().reshape(-1).cpu().numpy(), range=(0, 99), bins=50, color='steelblue', edgecolor='black')
+        # plt.hist(x = g.edata['weight'].reshape(-1).cpu().numpy(), bins=100, color='steelblue', edgecolor='black')
+        # plt.show()
+        # exit(0)
+
         for i, layer in enumerate(agg_layers_in):
-            ego_embed = layer(g, ego_embed)
-            # ego_embed[torch.sum(ego_embed, dim=-1) == 0] = all_embed[0][torch.sum(ego_embed, dim=-1) == 0] / 2
+            ego_embed = layer(g, ego_embed, use_noise, show_detail)
             all_embed.append(ego_embed)
 
         if self.layers_weight is not None:
@@ -254,7 +293,7 @@ class CFGCN(nn.Module):
         return propagated_embed
 
 
-def combine_multi_layer_embedding(embeddings_in, mode=0):
+def combine_multi_graph_embedding(embeddings_in, mode=0):
     if mode == 0:
         # mean
         return torch.mean(torch.stack(embeddings_in, dim=-1), dim=-1)
@@ -262,7 +301,7 @@ def combine_multi_layer_embedding(embeddings_in, mode=0):
         # concat
         return torch.cat(embeddings_in, dim=-1)
     else:
-        assert False, 'not support this mode in combine_multi_layer_embedding'
+        assert False, 'not support this mode in combine_multi_graph_embedding'
 
 
 # def AggregateUnweighted(g, entity_embed):

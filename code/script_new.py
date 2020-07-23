@@ -12,10 +12,11 @@ from cf_dataset import DataOnlyCF
 from gcn_model import CFGCN
 from metrics import precision_and_recall, ndcg, auc
 
-CODE_VERSION = '0709-1350'
+CODE_VERSION = '0721-1655'
 USE_PRETRAIN = True
-# PRETRAIN_VERSION = 'lr0005_1e4_500epoch'
-PRETRAIN_VERSION = 'LightGCN_Pretrain'
+RETRAIN_PRETRAIN = False
+PRETRAIN_VERSION = 'lr0005_1e4_500epoch'
+# PRETRAIN_VERSION = 'LightGCN_Pretrain'
 PRETRAIN_EPOCH = 500
 GCN_EPOCH = 2
 STRUC_STEP = 30
@@ -27,8 +28,12 @@ LAM = 1e-4
 TOPK = 20
 M3LAYERS = [-1] # build_struc_graphs mode3_layers (layers of prune graph)
 BMODE = 3 # build_struc_graphs mode (3 for prune)
-CMODE = 0 # combine_multi_layer_embedding mode (1 for concat)
+CMODE = 0 # combine_multi_graph_embedding mode (1 for concat)
+ATYPE = 'graphsage' # gcn graphsage bi-interaction
 WFUSE = False # whether use diff weight to fuse(get mean) each step embedding of GCN
+
+# GPU / CPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # register logging logger
 logger = logging.getLogger()
@@ -37,17 +42,15 @@ time_line = time.strftime('%Y%m%d_%H:%M', time.localtime(time.time()))
 logfile = time_line + '_snew.log'
 print('logfile', logfile)
 formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%d%b %H:%M')
-logfile_h = logging.FileHandler(logfile, mode='w')
-logfile_h.setLevel(logging.INFO)
-logfile_h.setFormatter(formatter)
 console_h = logging.StreamHandler()
 console_h.setLevel(logging.INFO)
 console_h.setFormatter(formatter)
-logger.addHandler(logfile_h)
 logger.addHandler(console_h)
-
-# GPU / CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device == 'cuda':
+    logfile_h = logging.FileHandler(logfile, mode='w')
+    logfile_h.setLevel(logging.INFO)
+    logfile_h.setFormatter(formatter)
+    logger.addHandler(logfile_h)
 
 def train(model, data_loader, optimizer, use_dummy_gcn=False, use_struc=None):
     model.train()
@@ -88,7 +91,7 @@ def test(data_set, model, data_loader, show_auc = False, use_dummy_gcn=False, us
         recall = []
         ndcg_score = []
         auc_score = []
-        for user_ids, _, __ in tqdm.tqdm(data_loader):
+        for user_ids, _, __ in data_loader:
             user_ids = user_ids.to(device)
             ratings = model.get_users_ratings(user_ids, use_dummy_gcn, use_struc)
             ground_truths = []
@@ -127,11 +130,22 @@ if __name__ == "__main__":
     logging.info(str(time.asctime(time.localtime(time.time()))))
     data_set = DataOnlyCF('data_for_test/gowalla/train.txt', 'data_for_test/gowalla/test.txt')
     itra_G = data_set.get_interaction_graph()
+    # print('itra_G: nodes', itra_G.number_of_nodes(), ',edges', itra_G.number_of_edges(), ',degree mean&var', itra_G.out_degrees().float().mean(), itra_G.out_degrees().float().var())
+    # import matplotlib.pyplot as plt
+    # n_users = data_set.get_user_num()
+    # deu = itra_G.out_degrees().reshape(-1).cpu().numpy()[:n_users]
+    # dei = itra_G.out_degrees().reshape(-1).cpu().numpy()[n_users:]
+    # print(deu.max())
+    # plt.hist(x = dei, range=(0, 99), bins=100, color='steelblue', edgecolor='black')
+    # plt.show()
+    # exit(0)
 
     # move graph data to target device
     itra_G.ndata['id'] = itra_G.ndata['id'].to(device)
     itra_G.ndata['sqrt_degree'] = itra_G.ndata['sqrt_degree'].to(device)
+    t1 = time.time()
     struc_Gs = data_set.build_struc_graphs(mode=BMODE, mode3_layers=M3LAYERS)
+    print('build_struc_graphs time:', time.time() - t1)
     for g in struc_Gs:
         g.ndata['id'] = g.ndata['id'].to(device)
         g.edata['weight'] = g.edata['weight'].to(device)
@@ -142,21 +156,37 @@ if __name__ == "__main__":
             assert False # only use pruned_struc_graph
     # struc_Gs = None
 
+    # for struc_G in struc_Gs:
+    #     print()
+    #     ma = torch.max(struc_G.edata['weight']).cpu().item()
+    #     mi = torch.min(struc_G.edata['weight']).cpu().item()
+    #     me = torch.mean(struc_G.edata['weight']).cpu().item()
+    #     v = torch.var(struc_G.edata['weight']).cpu().item()
+    #     print(f'weight max: {ma}, min: {mi}, mean: {me}, var: {v}, edge_nums: {struc_G.number_of_edges()}')
+    #     print('struc_G: nodes', struc_G.number_of_nodes(), ',edges', struc_G.number_of_edges(), ',degree mean&var&max', struc_G.out_degrees().float().mean(), struc_G.out_degrees().float().var(), struc_G.out_degrees().max())
+    #     print('struc_G: nodes', struc_G.number_of_nodes(), ',edges', struc_G.number_of_edges(), ',degree mean&var', struc_G.in_degrees().float().mean(), struc_G.in_degrees().float().var())
+    #     import matplotlib.pyplot as plt
+    #     plt.hist(x = g.out_degrees().reshape(-1).cpu().numpy(), range=(0, 199), bins=100, color='steelblue', edgecolor='black')
+    #     # plt.hist(x = g.edata['weight'].reshape(-1).cpu().numpy(), bins=100, color='steelblue', edgecolor='black')
+    #     plt.show()
+    # exit(0)
+
     n_users = data_set.get_user_num()
     n_items = data_set.get_item_num()
-    model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS, lam=LAM, weighted_fuse=WFUSE, combine_mode=CMODE).to(device)
+    model = CFGCN(n_users, n_items, itra_G, struc_Gs=struc_Gs, embed_dim=EDIM, n_layers=LAYERS,
+                  lam=LAM, weighted_fuse=WFUSE, combine_mode=CMODE, aggregator_type=ATYPE).to(device)
     train_data_loader = DataLoader(data_set, batch_size=2048, shuffle=True, num_workers=2)
     evaluate_data_loader = DataLoader(data_set.get_evaluate_dataset(), batch_size=4096, num_workers=2)
-    test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096, num_workers=2)
+    test_data_loader = DataLoader(data_set.get_test_dataset(), batch_size=4096 * 8, num_workers=2)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
 
     # pretrain mf model
     if USE_PRETRAIN:
         logging.info('load pretrain model, pretrain_version: ' + PRETRAIN_VERSION)
-        pretrained_data, saved_args = torch.load(PRETRAIN_VERSION + '.pth')
+        pretrained_data, saved_args = torch.load(PRETRAIN_VERSION + '.pth', device)
         assert (PRETRAIN_EPOCH, EDIM, CMODE) == saved_args, 'saved_args not match' + str(saved_args)
         model.load_pretrained_embedding(pretrained_data)
-    else:
+    elif RETRAIN_PRETRAIN:
         for epoch_i in range(PRETRAIN_EPOCH):
             logging.info('Pretrain mf - epoch ' + str(epoch_i + 1) + '/' + str(PRETRAIN_EPOCH))
             train(model, train_data_loader, optimizer, use_dummy_gcn=True)
@@ -179,7 +209,7 @@ if __name__ == "__main__":
             logging.info('Train lgcn - epoch ' + str(i * (STRUC_STEP + ITRA_STEP) + epoch_i + 1) + '/' + str(GCN_EPOCH * (STRUC_STEP + ITRA_STEP)))
             train(model, train_data_loader, optimizer, use_dummy_gcn=False, use_struc=True)
             evaluate(model, evaluate_data_loader, use_dummy_gcn=False, use_struc=True)
-            if (epoch_i + 1) % 10 == 0:
+            if (epoch_i + 1) % 2 == 0:
                 test(data_set, model, test_data_loader, use_dummy_gcn=False, use_struc=True)
             logging.info('--------------------------------------------------')
 

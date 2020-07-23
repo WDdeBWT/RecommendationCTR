@@ -19,8 +19,10 @@ from .utils import partition_dict, partition_list, preprocess_nxgraph
 
 
 class Struc2Vec():
-    def __init__(self, graph, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec/', reuse=False):
+    def __init__(self, graph, n_users, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='./temp_struc2vec_ng/', reuse=False):
+    # def __init__(self, graph, n_users, workers=1, verbose=0, opt1_reduce_len=True, opt2_reduce_sim_calc=True, opt3_num_layers=None, temp_path='../temp_struc2vec_ng/', reuse=False):
         self.graph = graph
+        self.n_users = n_users
         self.idx2node, self.node2idx = preprocess_nxgraph(graph)
         self.idx = list(range(len(self.idx2node)))
 
@@ -46,79 +48,43 @@ class Struc2Vec():
             pd.to_pickle(self.layers_adj, self.temp_path + 'layers_adj.pkl')
             pd.to_pickle(self.layers_sim_scores, self.temp_path + 'layers_sim_scores.pkl')
 
-    def get_struc_graphs(self):
-        # build dgl graph of each layer
-        n_nodes = len(self.idx)
-        struc_graphs = []
-        for layer in self.layers_adj:
-            g = dgl.DGLGraph()
-            g.add_nodes(n_nodes)
-            edge_list = []
-            edge_weight_list = []
-            neighbors_dict = self.layers_adj[layer]
-            layer_sim_scores = self.layers_sim_scores[layer]
-            for v, neighbors in neighbors_dict.items():
-                sum_score = 0.0
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        sim_score = layer_sim_scores[v, n]
-                    else:
-                        sim_score = layer_sim_scores[n, v]
-                    sum_score += sim_score
-                if sum_score == 0:
-                    continue
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        normed_sim_score = layer_sim_scores[v, n] / sum_score
-                    else:
-                        normed_sim_score = layer_sim_scores[n, v] / sum_score
-                    edge_list.append((n, v)) # form n to v
-                    edge_weight_list.append(normed_sim_score)
-            edge_list = np.array(edge_list, dtype=int)
-            g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
-            g.readonly()
-            g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-            g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
-            struc_graphs.append(g)
-        return struc_graphs
-
-    def get_sumed_struc_graph(self):
-        # build dgl graph of each layer and sum the weight to one
-        n_nodes = len(self.idx)
-        edge_dict = {}
-        for layer in self.layers_adj:
-            g = dgl.DGLGraph()
-            g.add_nodes(n_nodes)
-            neighbors_dict = self.layers_adj[layer]
-            layer_sim_scores = self.layers_sim_scores[layer]
-            for v, neighbors in neighbors_dict.items():
-                sum_score = 0.0
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        sim_score = layer_sim_scores[v, n]
-                    else:
-                        sim_score = layer_sim_scores[n, v]
-                    sum_score += sim_score
-                if sum_score == 0:
-                    continue
-                for n in neighbors:
-                    if (v, n) in layer_sim_scores:
-                        normed_sim_score = layer_sim_scores[v, n] / sum_score
-                    else:
-                        normed_sim_score = layer_sim_scores[n, v] / sum_score
-                    edge_dict.setdefault((n, v), 0)
-                    edge_dict[n, v] += normed_sim_score
-        edge_list = []
-        edge_weight_list = []
-        for key in edge_dict:
-            edge_list.append(key)
-            edge_weight_list.append(edge_dict[key] / len(self.layers_adj.keys()))
-        edge_list = np.array(edge_list, dtype=int)
-        g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
-        g.readonly()
-        g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
-        g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
-        return g
+    # def get_sumed_struc_graph(self):
+    #     # build dgl graph of each layer and sum the weight to one
+    #     n_nodes = len(self.idx)
+    #     edge_dict = {}
+    #     for layer in self.layers_adj:
+    #         g = dgl.DGLGraph()
+    #         g.add_nodes(n_nodes)
+    #         neighbors_dict = self.layers_adj[layer]
+    #         layer_sim_scores = self.layers_sim_scores[layer]
+    #         for v, neighbors in neighbors_dict.items():
+    #             sum_score = 0.0
+    #             for n in neighbors:
+    #                 if (v, n) in layer_sim_scores:
+    #                     sim_score = layer_sim_scores[v, n]
+    #                 else:
+    #                     sim_score = layer_sim_scores[n, v]
+    #                 sum_score += sim_score
+    #             if sum_score == 0:
+    #                 continue
+    #             for n in neighbors:
+    #                 if (v, n) in layer_sim_scores:
+    #                     normed_sim_score = layer_sim_scores[v, n] / sum_score
+    #                 else:
+    #                     normed_sim_score = layer_sim_scores[n, v] / sum_score
+    #                 edge_dict.setdefault((n, v), 0)
+    #                 edge_dict[n, v] += normed_sim_score
+    #     edge_list = []
+    #     edge_weight_list = []
+    #     for key in edge_dict:
+    #         edge_list.append(key)
+    #         edge_weight_list.append(edge_dict[key] / len(self.layers_adj.keys()))
+    #     edge_list = np.array(edge_list, dtype=int)
+    #     g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
+    #     g.readonly()
+    #     g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
+    #     g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
+    #     return g
 
     def get_pruned_struc_graph(self, layers=[-1]):
         # build dgl graph of last layer and prune the low weight
@@ -135,18 +101,7 @@ class Struc2Vec():
             edge_weight_list = []
             neighbors_dict = self.layers_adj[layer]
             layer_sim_scores = self.layers_sim_scores[layer]
-            # times_out = 0 # times
             for v, neighbors in neighbors_dict.items():
-
-                # max_score = 0.0
-                # for n in neighbors:
-                #     if (v, n) in layer_sim_scores:
-                #         sim_score = layer_sim_scores[v, n]
-                #     else:
-                #         sim_score = layer_sim_scores[n, v]
-                #     max_score = sim_score if sim_score > max_score else max_score
-                # mid_score = max_score / 10 # cut the low sim edge
-
                 sum_score = 0.0
                 for n in neighbors:
                     if (v, n) in layer_sim_scores:
@@ -154,12 +109,12 @@ class Struc2Vec():
                     else:
                         sim_score = layer_sim_scores[n, v]
                     sum_score += sim_score
-                mid_score = (sum_score / len(neighbors)) / 3
-
+                mid_score = (sum_score / len(neighbors)) / 2
                 if mid_score == 0:
                     continue
                 # mid_score = 0 # not cut
-                # times_sub = 0 # times
+
+                edge_dict_temp = {} # {(n1, n2): sim_score}
                 for n in neighbors:
                     if (v, n) in layer_sim_scores:
                         sim_score = layer_sim_scores[v, n]
@@ -168,25 +123,17 @@ class Struc2Vec():
                     if sim_score > mid_score:
                         edge_list.append((n, v)) # form n to v
                         edge_weight_list.append(sim_score)
-                    # else: # times
-                        # times_sub += 1 # times
-                # if times_sub > 100: # times
-                    # times_out += 1 # times
-            # print('times_out', times_out) # times
-
-            # print(np.mean(edge_weight_list)) # result: 0.003 for 1% max; x.xxx for 10% max
-            # exit(0)
-            # sim_score = np.exp(0)
-            # sim_score = np.mean(edge_weight_list)
-            # for index in range(n_nodes):
-            #     edge_list.append((index, index))
-            #     edge_weight_list.append(sim_score)
+                #         edge_dict_temp[(n, v)] = sim_score
+                # for pair_node in edge_dict_temp:
+                #     edge_list.append(pair_node) # form n to v
+                #     edge_weight_list.append(edge_dict_temp[pair_node])
 
             edge_list = np.array(edge_list, dtype=int)
             g.add_edges(edge_list[:, :1].squeeze(), edge_list[:, 1:].squeeze())
             g.readonly()
             g.ndata['id'] = torch.arange(n_nodes, dtype=torch.long)
             g.edata['weight'] = torch.tensor(edge_weight_list).float().unsqueeze(-1)
+            # g.edata['weight'] = (g.edata['weight'] - g.edata['weight'].mean()) / torch.sqrt(g.edata['weight'].var() + 1e-10) * 0.075 + 0.7
             g.ndata['out_sqrt_degree'] = 1 / torch.sqrt(g.out_degrees().float().unsqueeze(-1))
             g.ndata['in_sqrt_degree'] = 1 / torch.sqrt(g.in_degrees().float().unsqueeze(-1))
 
@@ -224,18 +171,45 @@ class Struc2Vec():
                 pd.to_pickle(degreeList, self.temp_path + 'degreelist.pkl')
 
             if self.opt2_reduce_sim_calc:
-                degrees = self._create_vectors()
-                degreeListsSelected = {}
+                print('start len_nbs_list')
+
+                # degrees = self._create_vectors()
+                # vertices = {}
+                # len_nbs_list = []
+                # for v in tqdm(self.idx): # list of vertex
+                #     nbs = get_vertices(
+                #         v, len(self.graph[self.idx2node[v]]), degrees)
+                #     vertices[v] = nbs  # store nbs
+                #     len_nbs_list.append(len(nbs))
+
+                user_degrees, user_upper_boundary = self._create_vectors(self.idx[:self.n_users])
+                item_degrees, item_upper_boundary = self._create_vectors(self.idx[self.n_users:])
+                # print(user_upper_boundary, item_upper_boundary)
+                user_upper_nums = self._get_upper_nums(degreeList, user_upper_boundary, self.idx[:self.n_users])
+                item_upper_nums = self._get_upper_nums(degreeList, item_upper_boundary, self.idx[self.n_users:])
+                nb_sets = self.get_nb_sets()
+
                 vertices = {}
-                n_nodes = len(self.idx)
-                for v in self.idx:  # c:list of vertex
-                    nbs = get_vertices(
-                        v, len(self.graph[self.idx2node[v]]), degrees, n_nodes)
+                len_nbs_list = []
+                for v in tqdm(self.idx[:self.n_users]): # list of user
+                    nbs = get_vertices(v, len(self.graph[self.idx2node[v]]), user_degrees, user_upper_nums, nb_sets)
                     vertices[v] = nbs  # store nbs
-                    degreeListsSelected[v] = degreeList[v]  # store dist
-                    for n in nbs:
-                        # store dist of nbs
-                        degreeListsSelected[n] = degreeList[n]
+                    len_nbs_list.append(len(nbs))
+                for v in tqdm(self.idx[self.n_users:]): # list of item
+                    nbs = get_vertices(v, len(self.graph[self.idx2node[v]]), item_degrees, item_upper_nums, nb_sets)
+                    vertices[v] = nbs  # store nbs
+                    len_nbs_list.append(len(nbs))
+                print('mean len nbs 1:', np.mean(len_nbs_list).item())
+
+                # for v in tqdm(self.idx):
+                #     if v not in vertices:
+                #         break
+                #     vertices[v] = [nb for nb in vertices[v] if nb > v]
+                # len_nbs_list = []
+                # for v in vertices:
+                #     len_nbs_list.append(len(vertices[v]))
+                # print('mean len nbs 2:', np.mean(len_nbs_list).item())
+                # exit(0) # len_nbs_list
             else:
                 vertices = {}
                 for v in degreeList:
@@ -322,14 +296,18 @@ class Struc2Vec():
 
         return ordered_degree_sequence_dict
 
-    def _create_vectors(self):
+    def _create_vectors(self, part_idx=None):
+        if part_idx is None:
+            part_idx = self.idx
         print(str(time.asctime(time.localtime(time.time()))) + ' _create_vectors')
         degrees = {}  # sotre v list of degree
         degrees_sorted = set()  # store degree
+        degree_list = []
         G = self.graph
-        for v in self.idx:
+        for v in part_idx:
             degree = len(G[self.idx2node[v]])
             degrees_sorted.add(degree)
+            degree_list.append(degree)
             if (degree not in degrees):
                 degrees[degree] = {}
                 degrees[degree]['vertices'] = []
@@ -344,7 +322,34 @@ class Struc2Vec():
             if (index < (l - 1)):
                 degrees[degree]['after'] = degrees_sorted[index + 1]
 
-        return degrees
+        degree_list = np.sort(np.array(degree_list, dtype='int'))
+        upper_boundary = degree_list[int(len(degree_list) * 0.9)].item()
+        return degrees, upper_boundary
+
+    def _get_upper_nums(self, degree_list, upper_boundary, part_idx=None):
+        assert self.opt1_reduce_len
+        if part_idx is None:
+            part_idx = self.idx
+        upper_nums = {}
+        for v in part_idx:
+            temp_num = 0
+            reorderd_degree_list = degree_list[v][1][::-1]
+            for degree, times in reorderd_degree_list:
+                if degree >= upper_boundary:
+                    temp_num += times
+                else:
+                    break
+            upper_nums[v] = temp_num
+        return upper_nums
+
+    def get_nb_sets(self):
+        nb_sets = {}
+        for i in self.idx:
+            nbs_i = set()
+            for nb in self.graph[self.idx2node[i]]:
+                nbs_i.add(self.node2idx[nb])
+            nb_sets[i] = nbs_i
+        return nb_sets
 
     def _get_layer_rep(self, pair_distances):
         print(str(time.asctime(time.localtime(time.time()))) + ' _get_layer_rep')
@@ -356,7 +361,8 @@ class Struc2Vec():
                 vy = v_pair[1]
 
                 layers_sim_scores.setdefault(layer, {})
-                layers_sim_scores[layer][vx, vy] = np.exp(-float(distance) / 1)
+                # layers_sim_scores[layer][vx, vy] = np.exp(-float(distance))
+                layers_sim_scores[layer][vx, vy] = np.exp(-float(distance) / 2)
 
                 layers_adj.setdefault(layer, {})
                 layers_adj[layer].setdefault(vx, [])
@@ -365,6 +371,70 @@ class Struc2Vec():
                 layers_adj[layer][vy].append(vx)
 
         return layers_adj, layers_sim_scores
+
+
+def get_vertices(v, degree_v, degrees, upper_nums, nb_sets):
+    def has_same_neighbor(a, b):
+        nbs_b = nb_sets[b]
+        for na in nb_sets[a]:
+            if na in nbs_b:
+                return True
+        return False
+
+    def choice_degree(n, a, b):
+        if(b == -1):
+            degree_now = a
+        elif(a == -1):
+            degree_now = b
+        elif((n-b)/b < (a-n)/n):
+        # elif(abs(b - n) < abs(a - n)):
+            degree_now = b
+        else:
+            degree_now = a
+        return degree_now
+
+    vertices = []
+
+    for v2 in degrees[degree_v]['vertices']:
+        if (v < v2):
+            uv = upper_nums[v]
+            uv2 = upper_nums[v2]
+            if max(uv, uv2) < min(uv, uv2) * 2:
+                if has_same_neighbor(v, v2):
+                    vertices.append(v2)  # same degree
+    if ('before' not in degrees[degree_v]):
+        degree_b = -1
+    else:
+        degree_b = degrees[degree_v]['before']
+    if ('after' not in degrees[degree_v]):
+        degree_a = -1
+    else:
+        degree_a = degrees[degree_v]['after']
+    assert not (degree_b == -1 and degree_a == -1)
+    degree_now = choice_degree(degree_v, degree_a, degree_b)
+
+    while max(degree_now, degree_v) <= 1.5 * min(degree_now, degree_v):
+        for v2 in degrees[degree_now]['vertices']:
+            if (v < v2):
+                uv = upper_nums[v]
+                uv2 = upper_nums[v2]
+                if max(uv, uv2) < min(uv, uv2) * 2:
+                    if has_same_neighbor(v, v2):
+                        vertices.append(v2)  # same degree
+        if (degree_now == degree_b):
+            if ('before' not in degrees[degree_b]):
+                degree_b = -1
+            else:
+                degree_b = degrees[degree_b]['before']
+        else:
+            if ('after' not in degrees[degree_a]):
+                degree_a = -1
+            else:
+                degree_a = degrees[degree_a]['after']
+        if (degree_b == -1 and degree_a == -1):
+            break  # not anymore v
+        degree_now = choice_degree(degree_v, degree_a, degree_b)
+    return vertices
 
 
 def cost(a, b):
@@ -404,75 +474,6 @@ def convert_dtw_struc_dist(distances, startLayer=1):
         for layer in keys_layers:
             layers[layer] += layers[layer - 1] # accumulate the distance
     return distances
-
-
-def get_vertices(v, degree_v, degrees, n_nodes):
-    a_vertices_selected = 2 * math.log(n_nodes, 2)
-    vertices = []
-    try:
-        c_v = 0
-
-        for v2 in degrees[degree_v]['vertices']:
-            if (v != v2):
-                vertices.append(v2)  # same degree
-                c_v += 1
-                if (c_v > a_vertices_selected):
-                    raise StopIteration
-
-        if ('before' not in degrees[degree_v]):
-            degree_b = -1
-        else:
-            degree_b = degrees[degree_v]['before']
-        if ('after' not in degrees[degree_v]):
-            degree_a = -1
-        else:
-            degree_a = degrees[degree_v]['after']
-        if (degree_b == -1 and degree_a == -1):
-            raise StopIteration  # not anymore v
-        degree_now = verifyDegrees(degrees, degree_v, degree_a, degree_b)
-        # nearest valid degree
-        while True:
-            for v2 in degrees[degree_now]['vertices']:
-                if (v != v2):
-                    vertices.append(v2)
-                    c_v += 1
-                    if (c_v > a_vertices_selected):
-                        raise StopIteration
-
-            if (degree_now == degree_b):
-                if ('before' not in degrees[degree_b]):
-                    degree_b = -1
-                else:
-                    degree_b = degrees[degree_b]['before']
-            else:
-                if ('after' not in degrees[degree_a]):
-                    degree_a = -1
-                else:
-                    degree_a = degrees[degree_a]['after']
-
-            if (degree_b == -1 and degree_a == -1):
-                raise StopIteration
-
-            degree_now = verifyDegrees(degrees, degree_v, degree_a, degree_b)
-
-    except StopIteration:
-        return list(vertices)
-
-    return list(vertices)
-
-
-def verifyDegrees(degrees, degree_v_root, degree_a, degree_b):
-
-    if(degree_b == -1):
-        degree_now = degree_a
-    elif(degree_a == -1):
-        degree_now = degree_b
-    elif(abs(degree_b - degree_v_root) < abs(degree_a - degree_v_root)):
-        degree_now = degree_b
-    else:
-        degree_now = degree_a
-
-    return degree_now
 
 
 def compute_dtw_dist(part_list, degreeList, dist_func, job_id):

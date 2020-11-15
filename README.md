@@ -2,6 +2,8 @@
 
 Recommendation model for CTR prediction
 
+Closed projects. The performance is no better than LightGCN(Xiangnan He)
+
 ## Implementation based on following project
 
 * <https://github.com/LunaBlack/KGAT-pytorch> # model KGAT Pyorch implementation
